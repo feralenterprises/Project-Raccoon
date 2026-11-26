@@ -51,7 +51,7 @@ jobs:
               echo "PIN_$(echo "$k" | tr '.a-z' '_A-Z')=$(pin "$k")"
             done
           } >> "$GITHUB_ENV"
-          mkdir -p "$GITHUB_WORKSPACE/runtime" "$GITHUB_WORKSPACE/retained"
+          mkdir -p "$GITHUB_WORKSPACE/runtime" "$GITHUB_WORKSPACE/retained/logs"
 
       - name: Confirm no upload credentials are present
         run: |
@@ -91,15 +91,21 @@ jobs:
             echo "::error::BLOCKED: packager.bundleSha256 is not pinned; observed $observed"; exit 1
           fi
           test "$observed" = "$PIN_PACKAGER_BUNDLESHA256" || { echo "::error::bundle $observed != pinned $PIN_PACKAGER_BUNDLESHA256"; exit 1; }
-          tar xf bundle.tar.zst
-          ls -la
+
+      - name: Extract packager bundle
+        working-directory: runtime
+        run: |
+          set -eu -o pipefail
+          { zstd --version; tar --zstd -xf bundle.tar.zst; ls -la; } 2>&1 | tee "$RETAIN/logs/extract.log"
           hub_rl=$(tr -d '[:space:]' < plugin-hub/runelite.version)
           echo "pluginhub.runeliteVersion=$hub_rl" | tee -a "$FOUNDATION_EVIDENCE"
           test "$hub_rl" = "$PIN_RUNELITE_CLIENT_VERSION" || { echo "::error::plugin-hub builds RuneLite $hub_rl, pinned $PIN_RUNELITE_CLIENT_VERSION"; exit 1; }
 
       - name: Prepare packager runtime (official prepare.sh)
         working-directory: runtime
-        run: ./prepare.sh
+        run: |
+          set -o pipefail
+          ./prepare.sh 2>&1 | tee "$RETAIN/logs/prepare.log"
 
       - name: Write local plugin marker (not submitted anywhere)
         working-directory: runtime
@@ -145,6 +151,15 @@ jobs:
           test "$bytes" -le "$PIN_RELEASE_CEILINGBYTES"
           java source/tools/verify/FoundationVerifier.java packaged source "$RETAIN/$n.jar" "$RETAIN/$n.log" "$TARGET_COMMIT"
           (cd "$RETAIN" && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Surface logs on failure
+        if: failure()
+        run: |
+          for f in "$RETAIN"/logs/*.log "$RETAIN"/packager-console.log /tmp/jars/*.log; do
+            [ -f "$f" ] || continue
+            msg=$(tail -n 60 "$f" | cut -c1-300 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=log $(basename "$f")::$msg"
+          done
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
