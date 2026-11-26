@@ -32,9 +32,10 @@ com.feralenterprises.raccoon.core.bank       read-only bank observation over the
   `getAccountHash`), `GameState`,
   `WorldType`, `events.GameStateChanged`, `events.GameTick`, `events.ClientTick` and
   `net.runelite.client.eventbus.Subscribe`; (FR-003, exact types only) `net.runelite.api.ItemContainer`,
-  `Item`, `ItemComposition` and `widgets.Widget` for read-only bank observation. Game-value constants
-  (`gameval.*`) compile to literals and add no references. All other `net.runelite.api` types
-  stay forbidden.
+  `Item`, `ItemComposition` and `widgets.Widget` for read-only bank observation, plus the constant
+  holders `gameval.InventoryID`, `VarbitID`, `ItemID`, `InterfaceID`, `InterfaceID$Bankmain` and
+  `InterfaceID$BankpinKeypad` (their values are inlined, but javac still records the class names,
+  so each is listed explicitly). All other `net.runelite.api` types stay forbidden.
 - Account state lives only in `core.account.AccountLifecycle` (see `docs/account-lifecycle.md`);
   consumers use `AccountLifecycleView` and `AccountDataRegistry` (see `docs/ui-integration.md`).
 - Later assignments widen the allowed surface only by editing the allowlist in

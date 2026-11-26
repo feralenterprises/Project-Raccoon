@@ -85,7 +85,14 @@ public class FoundationVerifier
 		"net/runelite/api/ItemContainer",
 		"net/runelite/api/Item",
 		"net/runelite/api/ItemComposition",
-		"net/runelite/api/widgets/Widget"
+		"net/runelite/api/widgets/Widget",
+		// constant holders: values are inlined, but javac records the class names
+		"net/runelite/api/gameval/InventoryID",
+		"net/runelite/api/gameval/VarbitID",
+		"net/runelite/api/gameval/ItemID",
+		"net/runelite/api/gameval/InterfaceID",
+		"net/runelite/api/gameval/InterfaceID$Bankmain",
+		"net/runelite/api/gameval/InterfaceID$BankpinKeypad"
 	));
 	/** Core (pure domain) may reference only these, plus itself. */
 	static final List<String> CORE_ALLOWED_PREFIXES = Arrays.asList("java/lang/", "java/util/", "java/time/");
