@@ -362,6 +362,10 @@ public class FoundationVerifier
 			{
 				v.add("pins: " + k + " must be a full 40-hex commit SHA");
 			}
+			if (k.endsWith("Sha256") && !pins.getProperty(k).matches("[0-9a-f]{64}"))
+			{
+				v.add("pins: " + k + " must be a 64-hex SHA-256");
+			}
 		}
 
 		// wrapper pins
