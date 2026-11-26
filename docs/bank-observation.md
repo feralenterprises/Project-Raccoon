@@ -4,17 +4,44 @@ Read-only evidence about what the active account holds in its bank. Written **be
 implementation, as required by the FR-003 authorization. Requirements source: owner-provided R03
 contract for FR-003 (B01–B10), restated here in implementation terms.
 
-## Relation to Burrow (`BankCaptureGate`, `BankScanTracker`)
+## Donor reconciliation (FR-003 repair, 2026-11-26)
 
-**Burrow source was not accessible in this session.** No Burrow code was read, ported or compared.
+The coordinator made the pinned donor available. Read-only; nothing in Burrow was modified, and no
+donor code is copied (Burrow uses Java 16+ records and deprecated `WidgetInfo`/`Varbits` APIs).
+
+| Donor file @ `eb962df3962eb56b258ee065e50c9ee1d457e479` | Git blob | SHA-256 |
+|---|---|---|
+| `Project-Burrow/.../core/BankCaptureGate.java` | `77e14b27` | `7f1c5712abc33f4befbe11d1a09825a7eb1a6f8f59b6ec2d2afc5cd34b553726` |
+| `Project-Burrow/.../core/BankScanTracker.java` | `018605f9` | `eb60d7e232e3ea96ef3dfe88b75e0784fb1fa9742cdadba4748da1dfdddd9049` |
+| `Project-Burrow/.../runelite/AutomaticBankSnapshotReader.java` | `b7639912` | `d9417b42a3a353534efc0a63ed0f7b92a969c12ca1b1b44d8acaef8f9f5b3c5f` |
+
+| Behaviour | Donor (verified) | Raccoon after repair | Decision |
+|---|---|---|---|
+| Stability witness | `Read.sameContent`: account, raw bank slot count, tab sum, both carried reporting flags, bank, inventory and equipment maps | Same fields, plus the full raw bank slot sequence (id, quantity, kind), exact per-tab counts and full scope authority | **Adopt donor fields; keep stricter R03 extras.** A changed valid sample restarts the streak at 1 |
+| Streak lengths | 2 populated, 3 empty | 2 / 3 | Same |
+| Unknown tab witness | Populated accepted; empty needs a witness | Populated → `DEGRADED_POPULATED` only | **Keep stricter R03 B01** |
+| Container bounds | BANK ≤ 4096, each carried ≤ 40, else `CONTAINER_TOO_LARGE` | Same limits, `CONTAINER_TOO_LARGE` | **Adopt** |
+| Before/after identity | `getAccountHash()` and `GameState` read before and after the container reads; must be equal and `LOGGED_IN` | Frame carries before/after identity readings and phases; the tracker requires both `LOGGED_IN` and asks the **central lifecycle** (`confirms(scope, reading)`) that both readings are the current session's account. The hash never leaves the lifecycle | **Adopt, via lifecycle authority** (no second account authority) |
+| Item widget | Root visible **and** items widget visible, PIN hidden (`WIDGET_NOT_READY` otherwise) | `Bankmain.UNIVERSE` and `Bankmain.ITEMS` both visible, PIN hidden; items hidden → `ITEMS_NOT_READY` (no capture, current revoked) | **Adopt** |
+| Definition identity | `def != null && def.getId() == itemId` | Same; mismatch → `UNREADABLE` | **Adopt** |
+| Noted classification | `getNote() != -1` (bank only; carried noted counted) | `getNote() == 799` noted; any other non −1 value fails closed; noted excluded from bank **and** carried; noted carried blocks combined claims | **Keep stricter R03 B06**; donor "list" = `getNote() != -1` |
+| Zero/negative quantities, id ≤ 0 | Silently skipped | Malformed → frame rejected; id 0 is a real item | **Keep stricter R03 B06** |
+| Retry cadence | `RETRY_TICKS = 3` after a failed read, `RESAMPLE_TICKS = 1` after a changing sample; unbounded | After a failed capture the next attempt waits 3 ticks; a changing sample is re-read next tick; at most 5 consecutive failures per open-bank session | **Adopt donor cadence; keep R03 bound** |
+| Accepted announcement | `ACCEPT` once, then `ACCEPTED` phase | One qualification announcement; unchanged revalidation does not republish | **Adopt** |
+| Last good / history | Cleared on scope/account rebind | History in a lifecycle login slot; published status recomputed on **every** lifecycle change | **Adopt intent; enforced centrally** |
+| Fencing | Scope token + account | Scope authority **plus** bank evidence generation: `isCurrent(evidence)` / `fenced(evidence, work)` | **Stricter**: account scope alone cannot fence bank results |
+
+### Previous note (superseded)
+
+At the first FR-003 handback Burrow source was **not accessible**; that design was written from R03 alone.
 This design is written from the R03 requirements alone, and **no migration parity with Burrow is
 claimed**. Where Burrow's behaviour is unknown, the choice below is the conservative reading of R03
 and is marked *provisional* so it can be reconciled when the donor is available.
 
 | Area | This design | Relation to Burrow |
 |---|---|---|
-| Gate (`BankCaptureGate`) | `BankObservationTracker.onTick` decides whether to capture: publishable account scope, bank visible, no PIN, new tick, retry budget left | Unknown; not compared |
-| Tracker (`BankScanTracker`) | Streak of matching valid observations on consecutive tick indices under one scope authority | Unknown; not compared |
+| Gate (`BankCaptureGate`) | `BankObservationTracker.onTick` decides whether to capture: publishable account scope, bank visible, no PIN, new tick, retry budget left | Reconciled above |
+| Tracker (`BankScanTracker`) | Streak of matching valid observations on consecutive tick indices under one scope authority | Reconciled above |
 | Account state | Uses the FR-002 lifecycle only: scope authority, `AccountSlot`, fencing. No private account copy (SR-1) | Intentional: Burrow's own account handling is not reused |
 | Noted variants (B06) | **Provisional:** every item whose definition is noted (`getNote() == 799`) is excluded; R03 refers to a donor-defined list that was not supplied | Possible difference: Burrow's list may be narrower or wider |
 | Retry bound | **Provisional:** at most 5 consecutive failed capture attempts per open-bank session, one per tick | Unknown |

@@ -28,6 +28,8 @@ the R03 §10 contract; Burrow was not accessed and no parity with it is claimed.
 | Donor component | Status | Project Raccoon counterpart | Parity |
 |---|---|---|---|
 | Account lifecycle (Burrow) | Not accessed | `core/account` (FR-002, written to R03 §10) | Not claimed |
-| `BankCaptureGate` (Burrow) | **Not accessible** | `core/bank/BankObservationTracker` capture gate (FR-003) | **Not claimed**; differences in `docs/bank-observation.md` |
-| `BankScanTracker` (Burrow) | **Not accessible** | `core/bank/BankObservationTracker` streak and authority (FR-003) | **Not claimed**; differences in `docs/bank-observation.md` |
-| Noted-variant list (Burrow) | **Not supplied** | Provisional: all noted definitions excluded | Not claimed |
+| `BankCaptureGate` (Burrow `eb962df3`, blob `77e14b27`) | Read-only reviewed | `core/bank/BankEvaluator`, `BankObservationTracker` gate | **Behaviour reconciled, not copied**; adopted: full stability fields, container bounds, before/after identity, item-widget and definition-identity checks; stricter R03 rules kept (see `docs/bank-observation.md`) |
+| `BankScanTracker` (Burrow `eb962df3`, blob `018605f9`) | Read-only reviewed | `core/bank/BankObservationTracker` streak and authority | **Behaviour reconciled, not copied**; adopted: 2/3 streaks, retry cadence 3 / resample 1, single acceptance; R03 retry bound and bank-generation fencing added |
+| `AutomaticBankSnapshotReader` (Burrow `eb962df3`, blob `b7639912`) | Read-only reviewed | `bank/RuneLiteBankCaptureSource` | **Behaviour reconciled, not copied**; uses pinned `gameval` names instead of deprecated `WidgetInfo`/`Varbits` |
+| Noted variants (Burrow) | Read-only reviewed | `getNote() == 799` noted, other non −1 values fail closed | Donor uses `getNote() != -1`; Raccoon stricter |
+| Full donor parity | — | — | **Not claimed**: only these three files were reviewed; no native comparison |
