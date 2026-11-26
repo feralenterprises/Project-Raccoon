@@ -1,5 +1,6 @@
 package com.feralenterprises.raccoon.core.account;
 
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -8,22 +9,19 @@ import java.util.Optional;
  * consumer thread and call {@link #onSnapshot}; tag any account-derived value with the scope it
  * was produced under and apply it only if {@link #accepts} holds at that moment.
  *
- * <p>Because hand-offs to one thread run in order, a value produced before a retirement is either
- * applied before the retirement snapshot arrives (and then cleared by it) or rejected after it.
- * Snapshots handed off out of order are ignored by revision, so the consumer never regresses.
- * Not thread-safe by design.
+ * <p>{@link #accepts} is authoritative: besides the latest snapshot seen on this thread it asks
+ * the lifecycle whether the scope is still current, so a value is rejected even when the
+ * retirement snapshot is still queued for this thread. Snapshots handed off out of order are
+ * ignored by revision, so the consumer never regresses. Not thread-safe by design.
  */
 public final class ConsumerScopeGate
 {
+	private final AccountLifecycleView authority;
 	private AccountSnapshot latest;
 
-	public ConsumerScopeGate()
-	{
-	}
-
-	/** Not yet used (reproduction commit); the repair makes this the only constructor. */
 	public ConsumerScopeGate(AccountLifecycleView authority)
 	{
+		this.authority = Objects.requireNonNull(authority);
 	}
 
 	/**
@@ -46,9 +44,14 @@ public final class ConsumerScopeGate
 		return Optional.ofNullable(latest);
 	}
 
-	/** True only if the latest snapshot is publishable and belongs to {@code scope}. */
+	/**
+	 * True only if the latest snapshot seen here is publishable for {@code scope} and the lifecycle
+	 * confirms, at this moment, that {@code scope} is still current.
+	 */
 	public boolean accepts(AccountScope scope)
 	{
-		return latest != null && scope != null && latest.isPublishable() && latest.scope().map(scope::equals).orElse(false);
+		return latest != null && scope != null && latest.isPublishable()
+			&& latest.scope().map(scope::equals).orElse(false)
+			&& authority.isCurrent(scope);
 	}
 }

@@ -17,7 +17,7 @@ public class ConsumerScopeGateTest
 {
 	private final LifecycleHarness h = new LifecycleHarness();
 	private final Deque<Runnable> consumerQueue = new ArrayDeque<>();
-	private final ConsumerScopeGate gate = new ConsumerScopeGate();
+	private final ConsumerScopeGate gate = new ConsumerScopeGate(h.lifecycle);
 	private final List<String> rendered = new ArrayList<>();
 
 	private void drain()

@@ -38,7 +38,9 @@ public class LifecycleBoundaryTest
 		assertFalse("a verified tick during LOADING does not re-establish freshness", h.snap().isPublishable());
 		assertTrue(h.snap().isAwaitingFreshIdentity());
 		h.phase(ClientPhase.LOGGED_IN).tick(A);
-		assertEquals("same epoch: a region change is not a hop", before, h.scope());
+		assertTrue("same epoch: a region change is not a hop", before.sameEpoch(h.scope()));
+		assertTrue("but a new authority after revalidation", before.authority() != h.scope().authority());
+		assertFalse(h.lifecycle.isCurrent(before));
 		assertEquals(Optional.of(4), kcTotals.get());
 		assertEquals(Optional.of(9), epochData.get());
 	}

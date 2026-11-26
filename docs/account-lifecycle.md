@@ -15,7 +15,7 @@ restated here in implementation terms.
 | Account identity | Opaque per-run ordinal (`AccountScope.accountId()`). The account hash is held privately for comparison and never exposed. |
 | Login token | One login. Survives a verified hop or reconnect; any new login gets a new token. |
 | Observation epoch | One activation. Every restore and every new login opens a new epoch. |
-| Scope | (identity, login token, epoch). All writes and callbacks carry the scope they were made under. |
+| Scope | (identity, login token, epoch, authority). All writes and callbacks carry the scope they were made under. A new authority is issued on every activation and every revalidation; an older scope is never current again. |
 | Login slots | Data for one login (e.g. KC totals). Masked while suspended, kept privately across verified continuity, cleared on retirement. |
 | Epoch slots | Data for one epoch (e.g. KC baseline, bank witness/streak, queued messages). Cleared on every new epoch. |
 
@@ -32,7 +32,9 @@ restated here in implementation terms.
 (`LOADING`, a repeated `LOGGED_IN`) makes it stale: the snapshot reports
 `isAwaitingFreshIdentity()`, reads are masked, writes and fenced callbacks are rejected. Only a
 `LOGGED_IN` game tick that verifies the same hash on a supported world makes it fresh again, in the
-same login and epoch (a region change is not a hop). Every tick, in any phase, is checked: an
+same login and epoch (a region change is not a hop), with a **new scope authority**: callbacks and
+writers holding the pre-`LOADING` scope stay rejected. Epoch data (baselines, witnesses) carries
+over; future observers must re-acquire the scope from the new snapshot before writing. Every tick, in any phase, is checked: an
 unknown identity, a read failure, a different hash or an unsupported world retires the login.
 
 ## Transitions
@@ -54,9 +56,10 @@ unknown identity, a read failure, a different hash or an unsupported world retir
 | `SUSPENDED` | `HOPPING`, `CONNECTION_LOST`, `LOADING`, `LOGGED_IN` | stay; limits keep running |
 | `SUSPENDED` | `LOGGING_IN` | `RETIRED (CONTINUITY_INTERRUPTED)` (see evidence below) |
 | `SUSPENDED` | tick in any phase: unsupported world (whatever the identity) | `RETIRED (UNSUPPORTED_WORLD)`; a later supported tick starts a **new** login |
+| `SUSPENDED` | tick in any phase: verified **different** hash | `RETIRED (DIFFERENT_ACCOUNT)`; a new login only on a `LOGGED_IN` tick |
+| `SUSPENDED` | tick before `LOGGED_IN`: same hash or unknown | no effect (restore needs `LOGGED_IN`) |
 | `SUSPENDED` | `LOGGED_IN` tick: unknown hash / read failure | authentication pending (counts toward tick limit) |
 | `SUSPENDED` | tick: same hash, supported world, within limits | restore same login token, **new epoch** → `ACTIVE` |
-| `SUSPENDED` | tick: different hash | `RETIRED (DIFFERENT_ACCOUNT)`, then new login if world supported |
 | `SUSPENDED` | `LOGIN_SCREEN` / authenticator / other phase | `RETIRED` |
 | `SUSPENDED` | 120 s since suspension, or 20 ticks awaiting authentication | `RETIRED (CONTINUITY_TIMEOUT / AUTHENTICATION_TIMEOUT)` |
 
@@ -106,6 +109,9 @@ cleared totals (data is never shown wrongly). Native confirmation belongs to FR-
 - Listeners run without the state lock but under the delivery lock: they must not block on
   other threads that drive the lifecycle.
 - Slot operations (`get`, `get(scope)`, `set`) are each atomic with respect to transitions.
+- A scope is current only for its own authority period: after `LOADING` and revalidation the
+  epoch continues but every earlier scope is stale, so a late callback or observer can never
+  regain authority by surviving a region change.
 - `fenced(scope, work)` checks the scope when the work starts; work that also writes must use
   `set(scope, …)`, which re-checks atomically. Work started before a transition is not interrupted.
 - Subscriptions survive `stop()`/`start()`; they see the `RETIRED` and `UNAUTHENTICATED` snapshots.
@@ -126,6 +132,7 @@ cleared totals (data is never shown wrongly). Native confirmation belongs to FR-
 | Audit 2026-11-26 | `AuditRegressionTest` (10), `finding4_*` adapter (2): reproduced each finding before repair (CI failed at `1792d0d6`) |
 | Boundaries | `LifecycleBoundaryTest` (11): region change, masking, limits at 119.999 s / 120 s / 20 ticks, clock backwards, enable during LOADING |
 | Concurrency | `LifecycleConcurrencyTest` (real threads), `ConsumerScopeGateTest` (3) |
+| Re-review 2026-11-26 | `AuditRegressionTest.rereview_*` (5): contradictory identity during HOPPING/LOADING, no restore before LOGGED_IN, pre-LOADING authority, authoritative gate (reproduced at `95d2133a`) |
 
 ## Open policy inputs
 

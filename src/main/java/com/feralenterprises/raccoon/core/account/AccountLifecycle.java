@@ -56,6 +56,7 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 	private long revision;
 	private long epochCounter;
 	private long loginCounter;
+	private long authorityCounter;
 	private final Queue<AccountSnapshot> pending = new ArrayDeque<>();
 
 	// guarded by deliveryLock
@@ -252,9 +253,17 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 		{
 			return;
 		}
-		if (!identityFresh || membership != world.membership())
+		if (!identityFresh)
 		{
+			// revalidated after LOADING: same login and epoch, but a new authority, so scopes
+			// (callbacks, writers) from before the phase change never regain authority
+			currentScope = new AccountScope(sessionAccountId, sessionLoginToken, currentScope.epoch(), ++authorityCounter);
 			identityFresh = true;
+			membership = world.membership();
+			publish();
+		}
+		else if (membership != world.membership())
+		{
 			membership = world.membership();
 			publish();
 		}
@@ -268,6 +277,16 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 			retire(RetireReason.UNSUPPORTED_WORLD);
 			return;
 		}
+		if (identity.isVerified() && identity.hash() != sessionHash)
+		{
+			// a contradictory identity in any phase ends the held login; a new one needs LOGGED_IN
+			retire(RetireReason.DIFFERENT_ACCOUNT);
+			if (phase == ClientPhase.LOGGED_IN)
+			{
+				activateNewLogin(identity, world);
+			}
+			return;
+		}
 		if (phase != ClientPhase.LOGGED_IN)
 		{
 			return;
@@ -279,12 +298,6 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 			{
 				retire(RetireReason.AUTHENTICATION_TIMEOUT);
 			}
-			return;
-		}
-		if (identity.hash() != sessionHash)
-		{
-			retire(RetireReason.DIFFERENT_ACCOUNT);
-			activateNewLogin(identity, world);
 			return;
 		}
 		// same hash, uninterrupted suspension, supported world, within limits: keep the login
@@ -323,7 +336,7 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 	private void openEpoch(WorldContext world)
 	{
 		clear(epochSlots);
-		currentScope = new AccountScope(sessionAccountId, sessionLoginToken, ++epochCounter);
+		currentScope = new AccountScope(sessionAccountId, sessionLoginToken, ++epochCounter, ++authorityCounter);
 		membership = world.membership();
 		state = AccountState.ACTIVE;
 		identityFresh = true;

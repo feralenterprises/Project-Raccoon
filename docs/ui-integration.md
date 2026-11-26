@@ -12,10 +12,10 @@ FR-002 contains no UI.
 | `AccountSnapshot` | Immutable; safe on any thread. `state()`, `isPublishable()`, `isAwaitingFreshIdentity()`, `scope()`, `membership()`, `lastRetireReason()`, `revision()`. |
 | `AccountLifecycleListener` | Called with every snapshot, in order. Gets the current snapshot immediately on subscribe. |
 | `Subscription` | Returned by `subscribe`; `cancel()` / `close()`. |
-| `AccountScope` | Opaque (account id, login token, epoch). Key any per-account cache by it. |
+| `AccountScope` | Opaque (account id, login token, epoch, authority). Authority for writes/callbacks; `sameEpoch` / `sameLogin` tell whether data continuity holds across a renewed scope. |
 | `AccountDataRegistry` / `AccountSlot<T>` | Central account data: `loginSlot`, `epochSlot`; `get()` masked unless publishable, `get(scope)` only for the scope you hold, `set(scope, value)` only from the current scope. Each call is atomic. |
 | `EpochBaseline` | Counter deltas; the first value in an epoch is 0. |
-| `ConsumerScopeGate` | Confine one per consumer thread (e.g. the EDT): `onSnapshot` (ignores older revisions), `accepts(scope)` before applying any value. |
+| `ConsumerScopeGate` | `new ConsumerScopeGate(view)`; confine one per consumer thread (e.g. the EDT): `onSnapshot` (ignores older revisions), `accepts(scope)` before applying any value. `accepts` is authoritative: it also asks the lifecycle, at application time, whether the scope is still current. |
 
 In the plugin, obtain them by injecting `com.feralenterprises.raccoon.account.AccountLifecycleService`
 and calling `view()` (read side) or `data()` (slot registry). Only that service drives
@@ -26,9 +26,10 @@ transitions.
 1. **Render account data only when `snapshot.isPublishable()`.** On any other snapshot, show the
    neutral state and drop every account-derived value you hold. This includes `ACTIVE` snapshots
    with `isAwaitingFreshIdentity()` (for example during `LOADING`); they are not publishable.
-2. **Never keep data across scopes.** When `snapshot.scope()` changes (different login token or
-   epoch), discard caches built for the previous scope. Use `AccountScope.sameLogin` only to decide
-   presentation (for example "reconnected"), not to reuse epoch data.
+2. **Never keep authority across scopes.** When `snapshot.scope()` changes, re-tag everything with
+   the new scope; values tagged with the old one are rejected. If `old.sameEpoch(new)` (a region
+   change), the data itself is still valid and can be re-read under the new scope; otherwise
+   discard caches. Use `sameLogin` only for presentation (for example "reconnected").
 3. **Fence asynchronous work.** Wrap anything that completes later (images, timers, background
    computation) with `view.fenced(scope, work)`, or check `isCurrent(scope)` before applying it.
 4. **Thread hand-off is the consumer's job; use `ConsumerScopeGate`.** Listeners run on the
@@ -38,8 +39,8 @@ transitions.
    everything when not publishable).
 5. **Tag and gate every value.** Read slot values with `get(scope)` for the scope you hold, pass
    immutable copies tagged with that scope, and apply them on your thread only if
-   `gate.accepts(scope)`. Because hand-offs to one thread are ordered, a value produced before a
-   retirement is either rejected or cleared by the retirement snapshot that follows it.
+   `gate.accepts(scope)`. The check consults the lifecycle at that moment, so a value is rejected
+   even if the retirement snapshot is still queued for your thread.
 6. **Never display or log account hashes.** None of these types expose one. `accountId()` is a
    per-run ordinal, not an identity to show or persist.
 7. **Treat `Membership.UNKNOWN` as unknown,** never as members.
@@ -68,6 +69,12 @@ Consumers must now also: treat `ACTIVE` + `isAwaitingFreshIdentity()` as not pub
 use `get(scope)` and `ConsumerScopeGate` for thread hand-off (rules 4–5); expect a hop or reconnect
 that passes through `LOGGING_IN` to arrive as a new login (new `loginToken`, cleared totals).
 `AccountSlot` gained `get(AccountScope)`; no method was removed.
+
+## Changes in the 2026-11-26 re-review repair
+
+`ConsumerScopeGate` now requires the `AccountLifecycleView` (constructor argument) and checks it at
+application time. `AccountScope` gained `authority()` and `sameEpoch()`; a region change now yields
+a new scope with the same epoch, so consumers re-tag values after every `LOADING`.
 
 ## Requests to the UI workstream
 
