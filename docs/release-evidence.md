@@ -54,6 +54,21 @@ on 2026-11-26 and its receipt independently re-verified on a fresh runner.
 The post-processed JAR embeds packaging-time metadata (`runelite_plugin.json`), so repackaging
 the same commit gives a different hash; the retained artifact above is the accepted one.
 
+## FR-002 — account lifecycle (A01–A06)
+
+**Result: implemented; all regression and packaging checks PASS** (awaiting owner review).
+
+| Item | Value |
+|---|---|
+| Source SHA | `9257838fe5227d06bd7482f425bbff1c1a3cc431` |
+| Tests | 3 suites, **54 tests**, 0 failures, 0 errors, 0 skipped (39 lifecycle A01–A06, 10 adapter, 5 descriptor) |
+| Verifier self-test | 40/40 |
+| Development JAR | **27,398 bytes**, SHA-256 `0e2ba235a39b5226df506fb4c4d01acf635fa121f7615945ff51ab41ef04fc05`, 22 classes, major 55, reproducible |
+| Official post-processed JAR | **27,763 bytes**, SHA-256 `aa490c6046f16336e49cf1a8b51f000872898a4b794c8783b5876fc4d01ced23` (strict, non-upload, plugin-hub-tooling v6) |
+| Retained | artifact `15157520643`, run `45904083364`; re-verified on a fresh runner (job `140196840758`): source archive 48/48 files equal the commit tree |
+| FR-001 regression | accepted `cb3bc8b1` receipt re-verified (job `140196552456`); `cb3bc8b1` repackaged and verified (jobs `140196552345`, `140196840774`) |
+| CI jobs | foundation `140196551830`, `140196570537`; package head `140196551875` |
+
 ## Size history (SR-6)
 
 | Handback | Source | Dev JAR bytes | Dev JAR SHA-256 | Official JAR bytes | Official JAR SHA-256 | Δ official |
@@ -61,5 +76,6 @@ the same commit gives a different hash; the retained artifact above is the accep
 | FR-000 | `cb3bc8b1` | 1,326 | `96edc7c9…a97c1ea` | not run | — | — |
 | FR-001 | `f3a73150` | 1,326 (Δ 0) | `96edc7c9…a97c1ea` | 1,691 | `cdba98e7…5664f4f` | first measurement |
 | FR-001 accepted | `cb3bc8b1` | 1,326 | `96edc7c9…a97c1ea` | 1,690 | `509fef9d…b69e3d` | −1 vs `f3a73150` (metadata) |
+| FR-002 | `9257838f` | 27,398 (+26,072) | `0e2ba235…04fc05` | 27,763 | `aa490c60…01ced23` | +26,073 vs accepted FR-001 (lifecycle: 22 classes) |
 
 Limits: foundation 262,144 bytes · release target < 8,000,000 bytes · ceiling 10,485,760 bytes.

@@ -228,6 +228,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - commit: 9257838fe5227d06bd7482f425bbff1c1a3cc431 # FR-002 handback receipt
+            run: 45904083364
+            sha256: aa490c6046f16336e49cf1a8b51f000872898a4b794c8783b5876fc4d01ced23
+            bytes: 27763
           - commit: cb3bc8b1942377de8e95711d8d57e45b6b1f003c # accepted FR-001 receipt
             run: 45901758622
             sha256: 509fef9d67fd1cb2188562b73e761e8356be48c97dda2fd76225de88e5b69e3d
