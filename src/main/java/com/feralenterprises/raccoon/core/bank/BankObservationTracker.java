@@ -365,7 +365,14 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 		Objects.requireNonNull(listener);
 		listeners.add(listener);
 		listener.onBankSnapshot(snapshot);
-		return () -> listeners.remove(listener);
+		// cancel waits for a delivery in progress (deliveries hold this lock): nothing after it returns
+		return () ->
+		{
+			synchronized (this)
+			{
+				listeners.remove(listener);
+			}
+		};
 	}
 
 	@Override

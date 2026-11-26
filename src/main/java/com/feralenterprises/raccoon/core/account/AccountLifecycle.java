@@ -487,11 +487,18 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 			listener.onAccountSnapshot(s);
 		}
 
+		/**
+		 * Waits for any delivery round in progress on another thread, so that once this returns
+		 * the listener is never called again. Re-entrant from inside a listener.
+		 */
 		@Override
 		public void cancel()
 		{
-			cancelled = true;
-			registrations.remove(this);
+			synchronized (deliveryLock)
+			{
+				cancelled = true;
+				registrations.remove(this);
+			}
 		}
 	}
 

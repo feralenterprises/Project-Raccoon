@@ -112,7 +112,9 @@ no second account authority exists.
 - Delivery is serialized: one thread delivers at a time, every listener sees strictly increasing
   revisions, never concurrently. An input made from inside a listener is delivered after the
   current snapshot reached every listener. A cancelled subscription receives nothing further,
-  even within the same delivery round. A new subscriber starts from the latest snapshot.
+  even within the same delivery round; `cancel()` from another thread waits for a delivery round
+  in progress, so once it returns the listener is never called again (fixed after CI found a
+  cross-thread window at `7f76ee5e`). A new subscriber starts from the latest snapshot.
 - Listeners run without the state lock but under the delivery lock: they must not block on
   other threads that drive the lifecycle.
 - Slot operations (`get`, `get(scope)`, `set`) are each atomic with respect to transitions.
