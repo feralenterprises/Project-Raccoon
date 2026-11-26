@@ -13,7 +13,7 @@ jobs:
   foundation:
     runs-on: ubuntu-24.04
     env:
-      FOUNDATION_EVIDENCE: ${{ github.workspace }}/foundation-evidence.txt
+      FOUNDATION_EVIDENCE: ${{ runner.temp }}/foundation-evidence.txt
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -61,5 +61,5 @@ jobs:
           name: foundation-local-evidence
           path: |
             build/libs/project-raccoon.jar
-            foundation-evidence.txt
+            ${{ runner.temp }}/foundation-evidence.txt
           if-no-files-found: warn
