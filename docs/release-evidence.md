@@ -69,6 +69,22 @@ the same commit gives a different hash; the retained artifact above is the accep
 | FR-001 regression | accepted `cb3bc8b1` receipt re-verified (job `140196552456`); `cb3bc8b1` repackaged and verified (jobs `140196552345`, `140196840774`) |
 | CI jobs | foundation `140196551830`, `140196570537`; package head `140196551875` |
 
+## FR-002 — independent audit repair (2026-11-26)
+
+**Status: awaiting independent re-review (not accepted).**
+
+| Item | Value |
+|---|---|
+| Reproduction commit | `1792d0d65ca32e532859551819ea0007e2a8d3fd`: 12 new regression tests; CI failed at "Clean build and tests" (jobs `140201108174`, `140201126359`); packaging unaffected |
+| Repair source SHA | `aedb673dc081dcd85ed533188122919bbf2f371c` |
+| Tests | 7 suites, **81 tests**, 0 failures, 0 errors, 0 skipped |
+| Verifier self-test | 40/40 |
+| Development JAR | **30,106 bytes**, SHA-256 `095b1425a611770d3f44c6d6b591ddb042d72e51dabfd1b26b5a988fd302ce7c`, 24 classes, major 55, reproducible |
+| Official post-processed JAR | **30,469 bytes**, SHA-256 `3b41e7edf54515e134ec668339b5a06a613464e7e9e2e4205bf69b3b291ae8fe` |
+| Retained | artifact `15156989066` (zip `sha256:f415b242f843ef599d7163fdf98dbfd09f6158b4fd1d9f67dc2b7a94b58bce50`), run `45906081364`; fresh-runner re-verification job `140203270893`, source archive 53/53 |
+| CI jobs | foundation `140203001141`, `140203017891`; package head `140203001603` |
+| Regression of earlier receipts | `cb3bc8b1`, `f3a73150`, `65aac3d2`, `9257838f` all re-verified (jobs `140203001565`, `140203001721`, `140203001308`, `140203001607`) |
+
 ## Size history (SR-6)
 
 | Handback | Source | Dev JAR bytes | Dev JAR SHA-256 | Official JAR bytes | Official JAR SHA-256 | Δ official |
@@ -77,5 +93,6 @@ the same commit gives a different hash; the retained artifact above is the accep
 | FR-001 | `f3a73150` | 1,326 (Δ 0) | `96edc7c9…a97c1ea` | 1,691 | `cdba98e7…5664f4f` | first measurement |
 | FR-001 accepted | `cb3bc8b1` | 1,326 | `96edc7c9…a97c1ea` | 1,690 | `509fef9d…b69e3d` | −1 vs `f3a73150` (metadata) |
 | FR-002 | `9257838f` | 27,398 (+26,072) | `0e2ba235…04fc05` | 27,763 | `aa490c60…01ced23` | +26,073 vs accepted FR-001 (lifecycle: 22 classes) |
+| FR-002 repair | `aedb673d` | 30,106 (+2,708) | `095b1425…302ce7c` | 30,469 | `3b41e7ed…91ae8fe` | +2,706 vs `9257838f` (freshness, delivery, gate: 24 classes) |
 
 Limits: foundation 262,144 bytes · release target < 8,000,000 bytes · ceiling 10,485,760 bytes.

@@ -228,6 +228,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - commit: aedb673dc081dcd85ed533188122919bbf2f371c # FR-002 audit repair receipt
+            run: 45906081364
+            sha256: 3b41e7edf54515e134ec668339b5a06a613464e7e9e2e4205bf69b3b291ae8fe
+            bytes: 30469
           - commit: 9257838fe5227d06bd7482f425bbff1c1a3cc431 # FR-002 handback receipt
             run: 45904083364
             sha256: aa490c6046f16336e49cf1a8b51f000872898a4b794c8783b5876fc4d01ced23
