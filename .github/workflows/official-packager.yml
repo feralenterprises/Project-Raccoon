@@ -115,6 +115,12 @@ jobs:
           if [ -e "$marker" ]; then echo "::error::internal name $PIN_PACKAGING_INTERNALNAME already exists in plugin-hub"; exit 1; fi
           printf 'repository=%s\ncommit=%s\n' "$PIN_PACKAGING_REPOSITORY" "$TARGET_COMMIT" > "$marker"
           cat "$marker" | tee -a "$FOUNDATION_EVIDENCE"
+          # The packager reads the marker's git history (as for a Plugin Hub PR). Commit it in
+          # this runner-local checkout only; it has no credentials and is never pushed.
+          git -C plugin-hub add "plugins/$PIN_PACKAGING_INTERNALNAME"
+          git -C plugin-hub -c user.name=fr-001 -c user.email=fr-001@invalid -c commit.gpgsign=false \
+            commit -q -m "local FR-001 marker (not submitted)"
+          echo "pluginhub.localMarkerCommit=$(git -C plugin-hub rev-parse HEAD) (parent $PIN_PLUGINHUB_COMMIT, never pushed)" | tee -a "$FOUNDATION_EVIDENCE"
           remote=$(git ls-remote "$PIN_PACKAGING_REPOSITORY" | cut -f1 | grep -cx "$TARGET_COMMIT" || true)
           echo "packaging.commitAdvertisedByPublicRemote=$remote ref(s)" | tee -a "$FOUNDATION_EVIDENCE"
 
