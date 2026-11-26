@@ -99,6 +99,22 @@ the same commit gives a different hash; the retained artifact above is the accep
 | Retained | artifact `15157699896` (zip `sha256:0086b379fc71c5c1675b8d5adcda948493517e08a3ac4fb3a4c3b7511048f284`), run `45907558652`; fresh-runner re-verification job `140208099921`, source archive 53/53 |
 | CI jobs | foundation `140207845581`, `140207861867`; package head `140207845683`; all 5 earlier receipts re-verified |
 
+## FR-003 — read-only bank observation (B01–B10)
+
+**Status: implemented; awaiting independent review (not accepted).** FR-002 accepted at
+`abf11bfacff86573a9de0451775f4d14e5c4f0b1`.
+
+| Item | Value |
+|---|---|
+| Design record (before code) | `16ef87d8f567c6698c1cfab7da5acee833179660` (`docs/bank-observation.md`, migration manifest) |
+| Source SHA | `4d7ac59561514d83207bf8cd5b01a5e513d10822` (`93c95b1b` + exact gameval allowlist; `93c95b1b` failed the artifact check, see PR) |
+| Tests | 9 suites, **139 tests**, 0 failures, 0 errors, 0 skipped (45 bank B01–B10 + limits, 3 bank adapter, 86 earlier) |
+| Verifier self-test | 40/40 |
+| Development JAR | **63,214 bytes**, SHA-256 `ae387b9f4c6080eea7f84b543a034eb510ad0a78dc0f4a40c26a1f2cf245e4e4`, 50 classes, major 55 |
+| Official post-processed JAR | **63,578 bytes**, SHA-256 `c33070c601249dc3ee5ffb394a59df7f88ac1e4fb3468f5235ebd5ea747de583` |
+| Retained | artifact `15160040730` (zip `sha256:eb179a3a3ef0624f9aacd16b3a3611eecbd2b71192db3324c602c847540e6414`), run `45910387217`; fresh-runner job `140217308730`, source archive 77/77 |
+| CI jobs | foundation `140217064267`, `140217078672`; package head `140217064345`; 6 earlier receipts re-verified |
+
 ## Size history (SR-6)
 
 | Handback | Source | Dev JAR bytes | Dev JAR SHA-256 | Official JAR bytes | Official JAR SHA-256 | Δ official |
@@ -109,5 +125,6 @@ the same commit gives a different hash; the retained artifact above is the accep
 | FR-002 | `9257838f` | 27,398 (+26,072) | `0e2ba235…04fc05` | 27,763 | `aa490c60…01ced23` | +26,073 vs accepted FR-001 (lifecycle: 22 classes) |
 | FR-002 repair | `aedb673d` | 30,106 (+2,708) | `095b1425…302ce7c` | 30,469 | `3b41e7ed…91ae8fe` | +2,706 vs `9257838f` (freshness, delivery, gate: 24 classes) |
 | FR-002 re-review repair | `9e625d23` | 30,385 (+279) | `01223c91…fa823a3` | 30,749 | `6fefbf4b…ab5354` | +280 vs `aedb673d` |
+| FR-003 | `4d7ac595` | 63,214 (+32,829) | `ae387b9f…245e4e4` | 63,578 | `c33070c6…747de583` | +32,829 vs `9e625d23` (bank observation: 26 classes) |
 
 Limits: foundation 262,144 bytes · release target < 8,000,000 bytes · ceiling 10,485,760 bytes.
