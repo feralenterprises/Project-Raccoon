@@ -12,8 +12,6 @@ permissions:
 jobs:
   foundation:
     runs-on: ubuntu-24.04
-    env:
-      FOUNDATION_EVIDENCE: ${{ runner.temp }}/foundation-evidence.txt
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -27,7 +25,9 @@ jobs:
           java-version: 11.0.33+10
 
       - name: Record source SHA
-        run: echo "source.sha=${GITHUB_SHA}" | tee "$FOUNDATION_EVIDENCE"
+        run: |
+          echo "FOUNDATION_EVIDENCE=${RUNNER_TEMP}/foundation-evidence.txt" >> "$GITHUB_ENV"
+          echo "source.sha=${GITHUB_SHA}" | tee "${RUNNER_TEMP}/foundation-evidence.txt"
 
       - name: Development JDK matches pin
         run: java tools/verify/FoundationVerifier.java jdk .
