@@ -6,6 +6,7 @@
  *   java tools/verify/FoundationVerifier.java jdk      <repoRoot>
  *   java tools/verify/FoundationVerifier.java tests    <junitXmlDir>
  *   java tools/verify/FoundationVerifier.java artifact <repoRoot> <jar>
+ *   java tools/verify/FoundationVerifier.java packaged <repoRoot> <jar> <packagerLog> <commit>
  *   java tools/verify/FoundationVerifier.java selftest <repoRoot>
  *
  * Local results here are not the official Plugin Hub packager gate (FR-001).
@@ -56,6 +57,8 @@ public class FoundationVerifier
 
 	static final String OWN = "com/feralenterprises/raccoon/";
 	static final String CORE = OWN + "core/";
+	/** Entry the official packager injects into the post-processed JAR. */
+	static final String PACKAGER_STUB = "runelite_plugin.json";
 
 	/** External classes the FR-000 artifact may reference. Widening this is a reviewed change. */
 	static final List<String> ALLOWED_EXTERNAL_PREFIXES = Arrays.asList(
@@ -128,7 +131,7 @@ public class FoundationVerifier
 		Pattern.compile("xox[abprs]-[A-Za-z0-9-]{10,}"));
 	static final List<String> REQUIRED_RECORDS = Arrays.asList(
 		"docs/architecture.md", "docs/feature-parity.md", "docs/migration-provenance.md",
-		"docs/release-evidence.md", "docs/governance.md", "release/pins.properties", "LICENSE");
+		"docs/release-evidence.md", "docs/governance.md", "docs/engineering-requirements.md", "release/pins.properties", "LICENSE");
 
 	// ---------------------------------------------------------------- main
 
@@ -157,7 +160,14 @@ public class FoundationVerifier
 				}
 				Properties pins = loadPins(Paths.get(args[1]));
 				v = checkArtifact(Paths.get(args[2]), Long.parseLong(pins.getProperty("artifact.maxBytes")),
-					Integer.parseInt(pins.getProperty("bytecode.maxMajor")), true);
+					Integer.parseInt(pins.getProperty("bytecode.maxMajor")), true, false);
+				break;
+			case "packaged":
+				if (args.length < 5)
+				{
+					usage();
+				}
+				v = checkPackaged(loadPins(Paths.get(args[1])), Paths.get(args[2]), Paths.get(args[3]), args[4]);
 				break;
 			case "selftest":
 				v = selfTest(Paths.get(args[1]));
@@ -171,7 +181,7 @@ public class FoundationVerifier
 
 	static void usage()
 	{
-		System.err.println("usage: FoundationVerifier source|jdk|selftest <repoRoot> | tests <xmlDir> | artifact <repoRoot> <jar>");
+		System.err.println("usage: FoundationVerifier source|jdk|selftest <repoRoot> | tests <xmlDir> | artifact <repoRoot> <jar> | packaged <repoRoot> <jar> <log> <commit>");
 		System.exit(2);
 	}
 
@@ -554,7 +564,68 @@ public class FoundationVerifier
 
 	// ---------------------------------------------------------------- artifact
 
-	static List<String> checkArtifact(Path jar, long maxBytes, int maxMajor, boolean report) throws IOException
+	static List<String> checkPackaged(Properties pins, Path jar, Path log, String commit) throws IOException
+	{
+		List<String> v = new ArrayList<>();
+		if (!commit.matches("[0-9a-f]{40}"))
+		{
+			v.add("commit must be a full 40-hex SHA: " + commit);
+			return v;
+		}
+		v.addAll(checkArtifact(jar, Long.parseLong(pins.getProperty("artifact.maxBytes")),
+			Integer.parseInt(pins.getProperty("bytecode.maxMajor")), true, true));
+		if (!Files.isRegularFile(jar) || !Files.isRegularFile(log))
+		{
+			v.add("packager output missing (jar or log)");
+			return v;
+		}
+		byte[] bytes = Files.readAllBytes(jar);
+		String b64;
+		try
+		{
+			b64 = java.util.Base64.getUrlEncoder().withoutPadding()
+				.encodeToString(MessageDigest.getInstance("SHA-256").digest(bytes));
+		}
+		catch (Exception e)
+		{
+			throw new RuntimeException(e);
+		}
+		String logText = new String(Files.readAllBytes(log), StandardCharsets.UTF_8);
+		String expectLine = "built jar with hash " + b64 + " from commit " + commit;
+		if (!logText.contains(expectLine))
+		{
+			v.add("packager log does not record this JAR for commit " + commit + " (expected '" + expectLine + "')");
+		}
+		if (logText.contains("package failed"))
+		{
+			v.add("packager log reports 'package failed'");
+		}
+		String stub = readEntry(bytes, PACKAGER_STUB);
+		if (stub != null && !stub.contains("\"" + commit.substring(0, 8) + "\""))
+		{
+			v.add(PACKAGER_STUB + " does not carry version " + commit.substring(0, 8));
+		}
+		evidence("packaged.commit", commit);
+		evidence("packaged.hashB64", b64);
+		return v;
+	}
+
+	static String readEntry(byte[] jar, String name) throws IOException
+	{
+		try (ZipInputStream zin = new ZipInputStream(new ByteArrayInputStream(jar)))
+		{
+			for (ZipEntry e; (e = zin.getNextEntry()) != null; )
+			{
+				if (e.getName().equals(name))
+				{
+					return new String(readAll(zin), StandardCharsets.UTF_8);
+				}
+			}
+		}
+		return null;
+	}
+
+	static List<String> checkArtifact(Path jar, long maxBytes, int maxMajor, boolean report, boolean packaged) throws IOException
 	{
 		List<String> v = new ArrayList<>();
 		if (!Files.isRegularFile(jar))
@@ -563,7 +634,7 @@ public class FoundationVerifier
 			return v;
 		}
 		byte[] jarBytes = Files.readAllBytes(jar);
-		int entries = 0, classes = 0, highestMajor = 0;
+		int entries = 0, classes = 0, highestMajor = 0, stubs = 0;
 		Set<String> externalRefs = new TreeSet<>();
 		try (ZipInputStream zin = new ZipInputStream(new ByteArrayInputStream(jarBytes)))
 		{
@@ -582,6 +653,11 @@ public class FoundationVerifier
 				}
 				if (n.equals("META-INF/MANIFEST.MF"))
 				{
+					continue;
+				}
+				if (packaged && n.equals(PACKAGER_STUB))
+				{
+					stubs++;
 					continue;
 				}
 				if (n.endsWith("module-info.class"))
@@ -622,13 +698,18 @@ public class FoundationVerifier
 		{
 			v.add("artifact contains no classes");
 		}
+		if (packaged && stubs != 1)
+		{
+			v.add("post-processed JAR must contain exactly one " + PACKAGER_STUB + ", found " + stubs);
+		}
 		if (report)
 		{
-			evidence("artifact.path", jar.toString());
-			evidence("artifact.bytes", jarBytes.length + " (limit " + maxBytes + ", " + String.format("%.2f", jarBytes.length / 1024.0) + " KiB)");
-			evidence("artifact.sha256", sha256(jarBytes));
-			evidence("artifact.entries", "entries=" + entries + " classes=" + classes + " highestMajor=" + highestMajor);
-			evidence("artifact.externalRefs", String.join(",", externalRefs));
+			String k = packaged ? "packaged" : "artifact";
+			evidence(k + ".path", jar.toString());
+			evidence(k + ".bytes", jarBytes.length + " (limit " + maxBytes + ", " + String.format("%.2f", jarBytes.length / 1024.0) + " KiB)");
+			evidence(k + ".sha256", sha256(jarBytes));
+			evidence(k + ".entries", "entries=" + entries + " classes=" + classes + " highestMajor=" + highestMajor);
+			evidence(k + ".externalRefs", String.join(",", externalRefs));
 		}
 		return v;
 	}
@@ -893,6 +974,16 @@ public class FoundationVerifier
 		artifactCase("image asset rejected", out, tmp, max, "forbidden package content",
 			Collections.singletonMap(OWN + "icon.png", new byte[]{0}), good);
 
+		byte[] stubJson = "{\"version\":\"0123abcd\"}".getBytes(StandardCharsets.UTF_8);
+		artifactCase("post-processed JAR with packager stub passes", true, out, tmp, max, null,
+			Collections.singletonMap(PACKAGER_STUB, stubJson), good, pure);
+		artifactCase("post-processed JAR without stub rejected", true, out, tmp, max, "exactly one " + PACKAGER_STUB,
+			Collections.emptyMap(), good, pure);
+		artifactCase("development JAR with packager stub rejected", false, out, tmp, max, "forbidden package content",
+			Collections.singletonMap(PACKAGER_STUB, stubJson), good, pure);
+
+		packagedLogCase(root, tmp, out, good, pure, stubJson);
+
 		// source-mode mutations on a copy of the real repository
 		sourceCase(root, tmp, "repository source passes", null, null, null);
 		sourceCase(root, tmp, "floating RuneLite version rejected", "build.gradle", s -> s.replace("'1.13.8'", "'latest.release'"), "floating version");
@@ -919,6 +1010,12 @@ public class FoundationVerifier
 	static void artifactCase(String name, Path classes, Path tmp, long max, String expectFail,
 		Map<String, byte[]> extra, String... entries) throws IOException
 	{
+		artifactCase(name, false, classes, tmp, max, expectFail, extra, entries);
+	}
+
+	static void artifactCase(String name, boolean packaged, Path classes, Path tmp, long max, String expectFail,
+		Map<String, byte[]> extra, String... entries) throws IOException
+	{
 		selfCases++;
 		Path jar = tmp.resolve("case-" + selfCases + ".jar");
 		Manifest mf = new Manifest();
@@ -942,7 +1039,7 @@ public class FoundationVerifier
 				}
 			}
 		}
-		judge(name, checkArtifact(jar, max, 55, false), expectFail);
+		judge(name, checkArtifact(jar, max, 55, false, packaged), expectFail);
 	}
 
 	static void sourceCase(Path root, Path tmp, String name, String file, Edit edit, String expectFail) throws IOException
@@ -972,6 +1069,53 @@ public class FoundationVerifier
 		try
 		{
 			judge(name, checkSource(copy), expectFail);
+		}
+		finally
+		{
+			quiet = false;
+		}
+	}
+
+	static void packagedLogCase(Path root, Path tmp, Path classes, String good, String pure, byte[] stubJson) throws IOException
+	{
+		String commit = "0123abcd" + "0".repeat(32);
+		Path jar = tmp.resolve("packaged.jar");
+		try (OutputStream os = Files.newOutputStream(jar); JarOutputStream jos = new JarOutputStream(os))
+		{
+			for (String e : new String[]{good, pure})
+			{
+				jos.putNextEntry(new JarEntry(e));
+				jos.write(Files.readAllBytes(classes.resolve(e)));
+			}
+			jos.putNextEntry(new JarEntry(PACKAGER_STUB));
+			jos.write(stubJson);
+		}
+		String b64;
+		try
+		{
+			b64 = java.util.Base64.getUrlEncoder().withoutPadding()
+				.encodeToString(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(jar)));
+		}
+		catch (Exception e)
+		{
+			throw new RuntimeException(e);
+		}
+		Properties pins = loadPins(root);
+		Path log = tmp.resolve("packager.log");
+		quiet = true;
+		try
+		{
+			Files.write(log, ("built jar with hash " + b64 + " from commit " + commit + "\n").getBytes(StandardCharsets.UTF_8));
+			selfCases++;
+			judge("packager log matches retained JAR and commit", checkPackaged(pins, jar, log, commit), null);
+			selfCases++;
+			judge("packager log for another commit rejected", checkPackaged(pins, jar, log, "f".repeat(40)), "does not record this JAR");
+			Files.write(log, ("built jar with hash AAAA from commit " + commit + "\n").getBytes(StandardCharsets.UTF_8));
+			selfCases++;
+			judge("packager log with different JAR hash rejected", checkPackaged(pins, jar, log, commit), "does not record this JAR");
+			Files.write(log, ("built jar with hash " + b64 + " from commit " + commit + "\npackage failed\n").getBytes(StandardCharsets.UTF_8));
+			selfCases++;
+			judge("packager failure in log rejected", checkPackaged(pins, jar, log, commit), "package failed");
 		}
 		finally
 		{

@@ -12,4 +12,6 @@
   dependencies, personal account records, secrets, unapproved assets.
 - **Handback (every checkpoint):** exact source SHA, artifact or explicit blocker, commands and
   results, next assignment.
+- **Standing requirements:** `docs/engineering-requirements.md` (SR-1 … SR-8) bind every
+  assignment from FR-001 onward; every handback reports exact artifact sizes and deltas (SR-6).
 - **Pins:** `release/pins.properties`; changing a pin is a reviewed change.

@@ -1,0 +1,155 @@
+name: official-packager
+
+# FR-001: package an exact public commit with the official Plugin Hub packager in strict,
+# non-upload mode, and retain the post-processed JAR with its evidence.
+# Nothing is uploaded or published: no upload credentials exist in this workflow, and the
+# packager only uploads when REPO_CREDS and REPO_ROOT are both set.
+
+on:
+  push:
+    branches:
+      - "**"
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Full 40-hex commit of feralenterprises/Project-Raccoon to package (default: this run's commit)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: source
+          persist-credentials: false
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 11.0.33+10
+
+      - name: Load pins and target commit
+        env:
+          INPUT_COMMIT: ${{ github.event.inputs.commit }}
+        run: |
+          set -eu
+          pin() { sed -n "s/^$1=//p" source/release/pins.properties | sed 's/\\:/:/g'; }
+          commit="${INPUT_COMMIT:-$GITHUB_SHA}"
+          echo "$commit" | grep -Eq '^[0-9a-f]{40}$' || { echo "::error::commit must be a full 40-hex SHA"; exit 1; }
+          {
+            echo "TARGET_COMMIT=$commit"
+            echo "RUNTIME=$GITHUB_WORKSPACE/runtime"
+            echo "RETAIN=$GITHUB_WORKSPACE/retained"
+            echo "FOUNDATION_EVIDENCE=$GITHUB_WORKSPACE/retained/fr-001-evidence.txt"
+            for k in packager.commit packager.releaseTag packager.bundleUrl packager.bundleSha256 \
+                     pluginhub.commit runelite.client.version packaging.internalName packaging.repository \
+                     artifact.maxBytes release.targetBytes release.ceilingBytes jdk.version; do
+              echo "PIN_$(echo "$k" | tr '.a-z' '_A-Z')=$(pin "$k")"
+            done
+          } >> "$GITHUB_ENV"
+          mkdir -p "$GITHUB_WORKSPACE/runtime" "$GITHUB_WORKSPACE/retained"
+
+      - name: Confirm no upload credentials are present
+        run: |
+          set -eu
+          for v in REPO_CREDS REPO_ROOT SIGNING_KEY PACKAGE_IS_PR; do
+            if [ -n "$(printenv "$v" || true)" ]; then echo "::error::$v is set; refusing to run"; exit 1; fi
+          done
+          echo "upload.mode=disabled (REPO_CREDS, REPO_ROOT, SIGNING_KEY unset)" | tee "$FOUNDATION_EVIDENCE"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: runelite/plugin-hub
+          ref: f7ed590e4e2599d81b3bd7ffeaec62314178ae3c
+          path: runtime/plugin-hub
+          persist-credentials: false
+
+      - name: Fetch and verify official packager bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: runtime
+        run: |
+          set -eu
+          test "$(git -C plugin-hub rev-parse HEAD)" = "$PIN_PLUGINHUB_COMMIT"
+          tag_commit=$(git ls-remote https://github.com/runelite/plugin-hub-tooling.git "refs/tags/$PIN_PACKAGER_RELEASETAG" | cut -f1)
+          echo "packager.tag=$PIN_PACKAGER_RELEASETAG -> $tag_commit" | tee -a "$FOUNDATION_EVIDENCE"
+          test "$tag_commit" = "$PIN_PACKAGER_COMMIT" || { echo "::error::packager tag $PIN_PACKAGER_RELEASETAG is $tag_commit, pinned $PIN_PACKAGER_COMMIT"; exit 1; }
+          curl --location --fail --retry 4 --max-time 120 --output bundle.tar.zst "$PIN_PACKAGER_BUNDLEURL"
+          observed=$(sha256sum bundle.tar.zst | cut -d' ' -f1)
+          published=$(gh api "repos/runelite/plugin-hub-tooling/releases/tags/$PIN_PACKAGER_RELEASETAG" \
+            --jq '.assets[] | select(.name=="bundle.tar.zst") | .digest' | sed 's/^sha256://')
+          echo "packager.bundleSha256=$observed (GitHub published digest: ${published:-none})" | tee -a "$FOUNDATION_EVIDENCE"
+          echo "::notice title=evidence packager.bundleSha256::$observed (published ${published:-none})"
+          if [ -n "$published" ] && [ "$observed" != "$published" ]; then
+            echo "::error::bundle digest $observed does not match GitHub published digest $published"; exit 1
+          fi
+          if [ -z "$PIN_PACKAGER_BUNDLESHA256" ]; then
+            echo "::error::BLOCKED: packager.bundleSha256 is not pinned; observed $observed"; exit 1
+          fi
+          test "$observed" = "$PIN_PACKAGER_BUNDLESHA256" || { echo "::error::bundle $observed != pinned $PIN_PACKAGER_BUNDLESHA256"; exit 1; }
+          tar xf bundle.tar.zst
+          ls -la
+          hub_rl=$(tr -d '[:space:]' < plugin-hub/runelite.version)
+          echo "pluginhub.runeliteVersion=$hub_rl" | tee -a "$FOUNDATION_EVIDENCE"
+          test "$hub_rl" = "$PIN_RUNELITE_CLIENT_VERSION" || { echo "::error::plugin-hub builds RuneLite $hub_rl, pinned $PIN_RUNELITE_CLIENT_VERSION"; exit 1; }
+
+      - name: Prepare packager runtime (official prepare.sh)
+        working-directory: runtime
+        run: ./prepare.sh
+
+      - name: Write local plugin marker (not submitted anywhere)
+        working-directory: runtime
+        run: |
+          set -eu
+          marker="plugin-hub/plugins/$PIN_PACKAGING_INTERNALNAME"
+          if [ -e "$marker" ]; then echo "::error::internal name $PIN_PACKAGING_INTERNALNAME already exists in plugin-hub"; exit 1; fi
+          printf 'repository=%s\ncommit=%s\n' "$PIN_PACKAGING_REPOSITORY" "$TARGET_COMMIT" > "$marker"
+          cat "$marker" | tee -a "$FOUNDATION_EVIDENCE"
+          remote=$(git ls-remote "$PIN_PACKAGING_REPOSITORY" | cut -f1 | grep -cx "$TARGET_COMMIT" || true)
+          echo "packaging.commitAdvertisedByPublicRemote=$remote ref(s)" | tee -a "$FOUNDATION_EVIDENCE"
+
+      - name: Run official packager (strict, non-upload)
+        working-directory: runtime
+        env:
+          FORCE_BUILD: ${{ env.PIN_PACKAGING_INTERNALNAME }}
+        run: |
+          set -o pipefail
+          java -version 2>&1 | tee -a "$FOUNDATION_EVIDENCE"
+          java -XX:+UseParallelGC -cp package.jar net.runelite.pluginhub.packager.Packager 2>&1 | tee "$RETAIN/packager-console.log"
+
+      - name: Retain post-processed artifact and verify
+        if: always()
+        run: |
+          set -eu
+          n="$PIN_PACKAGING_INTERNALNAME"
+          for f in "$n.jar" "$n.log" "$n.zip"; do
+            if [ -f "/tmp/jars/$f" ]; then cp "/tmp/jars/$f" "$RETAIN/"; fi
+          done
+          if [ -f /tmp/manifest_diff ]; then cp /tmp/manifest_diff "$RETAIN/manifest_diff.json"; fi
+          if [ ! -f "$RETAIN/$n.jar" ]; then echo "::error::no post-processed JAR produced"; exit 1; fi
+          bytes=$(stat -c %s "$RETAIN/$n.jar")
+          sha=$(sha256sum "$RETAIN/$n.jar" | cut -d' ' -f1)
+          {
+            echo "source.commit=$TARGET_COMMIT"
+            echo "packager=$PIN_PACKAGER_RELEASETAG ($PIN_PACKAGER_COMMIT)"
+            echo "pluginhub.commit=$PIN_PLUGINHUB_COMMIT"
+            echo "runelite.version=$PIN_RUNELITE_CLIENT_VERSION"
+            echo "official.jar.bytes=$bytes"
+            echo "official.jar.sha256=$sha"
+            echo "limits=foundation $PIN_ARTIFACT_MAXBYTES, target $PIN_RELEASE_TARGETBYTES, ceiling $PIN_RELEASE_CEILINGBYTES"
+          } | tee -a "$FOUNDATION_EVIDENCE"
+          test "$bytes" -le "$PIN_RELEASE_CEILINGBYTES"
+          java source/tools/verify/FoundationVerifier.java packaged source "$RETAIN/$n.jar" "$RETAIN/$n.log" "$TARGET_COMMIT"
+          (cd "$RETAIN" && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: fr-001-official-package-${{ env.TARGET_COMMIT }}
+          path: retained/
+          retention-days: 90
+          if-no-files-found: warn
