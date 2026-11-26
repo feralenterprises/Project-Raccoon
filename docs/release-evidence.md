@@ -85,6 +85,20 @@ the same commit gives a different hash; the retained artifact above is the accep
 | CI jobs | foundation `140203001141`, `140203017891`; package head `140203001603` |
 | Regression of earlier receipts | `cb3bc8b1`, `f3a73150`, `65aac3d2`, `9257838f` all re-verified (jobs `140203001565`, `140203001721`, `140203001308`, `140203001607`) |
 
+## FR-002 — re-review repair (2026-11-26)
+
+**Status: awaiting independent re-review (not accepted).**
+
+| Item | Value |
+|---|---|
+| Reproduction commit | `95d2133aa99f8fb0fb2148206672a45eb63d8edf`: 5 new tests (4 failing, 1 guard); CI failed at "Clean build and tests" (jobs `140207352136`, `140207366835`); packaging unaffected |
+| Repair source SHA | `9e625d23c130f822607d6e0a6740032e324f6113` |
+| Tests | 7 suites, **86 tests**, 0 failures, 0 errors, 0 skipped; verifier 40/40 |
+| Development JAR | **30,385 bytes**, SHA-256 `01223c918c0551002b9e56795da4b90f089782ffac02b73d734c0e5e4fa823a3`, 24 classes, major 55 |
+| Official post-processed JAR | **30,749 bytes**, SHA-256 `6fefbf4b600edcec7054b00b8371c987c73c5d4db728d0ff6a5dce0a75ab5354` |
+| Retained | artifact `15157699896` (zip `sha256:0086b379fc71c5c1675b8d5adcda948493517e08a3ac4fb3a4c3b7511048f284`), run `45907558652`; fresh-runner re-verification job `140208099921`, source archive 53/53 |
+| CI jobs | foundation `140207845581`, `140207861867`; package head `140207845683`; all 5 earlier receipts re-verified |
+
 ## Size history (SR-6)
 
 | Handback | Source | Dev JAR bytes | Dev JAR SHA-256 | Official JAR bytes | Official JAR SHA-256 | Δ official |
@@ -94,5 +108,6 @@ the same commit gives a different hash; the retained artifact above is the accep
 | FR-001 accepted | `cb3bc8b1` | 1,326 | `96edc7c9…a97c1ea` | 1,690 | `509fef9d…b69e3d` | −1 vs `f3a73150` (metadata) |
 | FR-002 | `9257838f` | 27,398 (+26,072) | `0e2ba235…04fc05` | 27,763 | `aa490c60…01ced23` | +26,073 vs accepted FR-001 (lifecycle: 22 classes) |
 | FR-002 repair | `aedb673d` | 30,106 (+2,708) | `095b1425…302ce7c` | 30,469 | `3b41e7ed…91ae8fe` | +2,706 vs `9257838f` (freshness, delivery, gate: 24 classes) |
+| FR-002 re-review repair | `9e625d23` | 30,385 (+279) | `01223c91…fa823a3` | 30,749 | `6fefbf4b…ab5354` | +280 vs `aedb673d` |
 
 Limits: foundation 262,144 bytes · release target < 8,000,000 bytes · ceiling 10,485,760 bytes.
