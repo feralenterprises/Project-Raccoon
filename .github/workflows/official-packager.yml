@@ -156,7 +156,7 @@ jobs:
           } | tee -a "$FOUNDATION_EVIDENCE"
           test "$bytes" -le "$PIN_RELEASE_CEILINGBYTES"
           java source/tools/verify/FoundationVerifier.java packaged source "$RETAIN/$n.jar" "$RETAIN/$n.log" "$TARGET_COMMIT"
-          (cd "$RETAIN" && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+          (cd "$RETAIN" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS && cat SHA256SUMS)
 
       - name: Surface logs on failure
         if: failure()
