@@ -71,7 +71,15 @@ public class FoundationVerifier
 	);
 	static final Set<String> ALLOWED_EXTERNAL_EXACT = new LinkedHashSet<>(Arrays.asList(
 		"net/runelite/client/plugins/Plugin",
-		"net/runelite/client/plugins/PluginDescriptor"
+		"net/runelite/client/plugins/PluginDescriptor",
+		// FR-002 account lifecycle adapter: client phase, account hash, world type, ticks
+		"net/runelite/api/Client",
+		"net/runelite/api/GameState",
+		"net/runelite/api/WorldType",
+		"net/runelite/api/events/GameStateChanged",
+		"net/runelite/api/events/GameTick",
+		"net/runelite/api/events/ClientTick",
+		"net/runelite/client/eventbus/Subscribe"
 	));
 	/** Core (pure domain) may reference only these, plus itself. */
 	static final List<String> CORE_ALLOWED_PREFIXES = Arrays.asList("java/lang/", "java/util/", "java/time/");
@@ -97,7 +105,7 @@ public class FoundationVerifier
 		DENIED_PREFIXES.put("java/awt/", "UI");
 		DENIED_PREFIXES.put("net/runelite/client/ui/", "UI");
 		DENIED_PREFIXES.put("net/runelite/client/config/", "persistent config storage");
-		DENIED_PREFIXES.put("net/runelite/api/", "game observation (not before FR-003)");
+		DENIED_PREFIXES.put("net/runelite/api/", "game observation (only the FR-002 lifecycle types are allowed before FR-003)");
 		DENIED_PREFIXES.put("sun/", "internal JDK API");
 		DENIED_PREFIXES.put("jdk/internal/", "internal JDK API");
 		DENIED_PREFIXES.put("com/sun/", "internal JDK API / JNA");
@@ -131,7 +139,7 @@ public class FoundationVerifier
 		Pattern.compile("xox[abprs]-[A-Za-z0-9-]{10,}"));
 	static final List<String> REQUIRED_RECORDS = Arrays.asList(
 		"docs/architecture.md", "docs/feature-parity.md", "docs/migration-provenance.md",
-		"docs/release-evidence.md", "docs/governance.md", "docs/engineering-requirements.md", "release/pins.properties", "LICENSE");
+		"docs/release-evidence.md", "docs/governance.md", "docs/engineering-requirements.md", "docs/account-lifecycle.md", "docs/ui-integration.md", "release/pins.properties", "LICENSE");
 
 	// ---------------------------------------------------------------- main
 
@@ -741,6 +749,10 @@ public class FoundationVerifier
 				continue;
 			}
 			externalRefs.add(ref);
+			if (!isCore && ALLOWED_EXTERNAL_EXACT.contains(ref))
+			{
+				continue;
+			}
 			String denied = deniedCategory(ref);
 			if (denied != null)
 			{
@@ -938,6 +950,14 @@ public class FoundationVerifier
 		fx.put("com/feralenterprises/raccoon/bad/HostImport.java",
 			"package com.feralenterprises.raccoon.bad; public class HostImport { int x() { return net.runelite.client.plugins.xptracker.XpTrackerPlugin.x(); } }");
 		fx.put("org/thirdparty/Shaded.java", "package org.thirdparty; public class Shaded {}");
+		fx.put("net/runelite/api/Client.java", "package net.runelite.api; public interface Client { long getAccountHash(); }");
+		fx.put("net/runelite/api/ItemContainer.java", "package net.runelite.api; public interface ItemContainer { }");
+		fx.put("com/feralenterprises/raccoon/account/Adapter.java",
+			"package com.feralenterprises.raccoon.account; public class Adapter { long h(net.runelite.api.Client c) { return c.getAccountHash(); } }");
+		fx.put("com/feralenterprises/raccoon/bad/Observer.java",
+			"package com.feralenterprises.raccoon.bad; public class Observer { net.runelite.api.ItemContainer bank; }");
+		fx.put("com/feralenterprises/raccoon/core/CoreToClient.java",
+			"package com.feralenterprises.raccoon.core; public final class CoreToClient { net.runelite.api.Client c; }");
 
 		List<String> paths = new ArrayList<>();
 		for (Map.Entry<String, String> e : fx.entrySet())
@@ -979,6 +999,12 @@ public class FoundationVerifier
 		artifactCase("file I/O rejected", out, tmp, max, "forbidden file", Collections.emptyMap(), good, "com/feralenterprises/raccoon/bad/Disk.class");
 		artifactCase("Thread.sleep rejected", out, tmp, max, "forbidden call java/lang/Thread.sleep", Collections.emptyMap(), good, "com/feralenterprises/raccoon/bad/Sleep.class");
 		artifactCase("broad host import rejected", out, tmp, max, "outside FR-000 allowed surface", Collections.emptyMap(), good, "com/feralenterprises/raccoon/bad/HostImport.class");
+		artifactCase("lifecycle adapter RuneLite types allowed", out, tmp, max, null, Collections.emptyMap(), good,
+			"com/feralenterprises/raccoon/account/Adapter.class");
+		artifactCase("observer API (ItemContainer) still rejected", out, tmp, max, "forbidden game observation", Collections.emptyMap(), good,
+			"com/feralenterprises/raccoon/bad/Observer.class");
+		artifactCase("core -> allowed RuneLite type still rejected", out, tmp, max, "net/runelite/api/Client in com/feralenterprises/raccoon/core/CoreToClient.class", Collections.emptyMap(), good,
+			"com/feralenterprises/raccoon/core/CoreToClient.class");
 		artifactCase("shaded third-party class rejected", out, tmp, max, "forbidden package content", Collections.emptyMap(), good, "org/thirdparty/Shaded.class");
 		artifactCase("service descriptor rejected", out, tmp, max, "forbidden package content",
 			Collections.singletonMap("META-INF/services/net.runelite.client.plugins.Plugin", "x".getBytes(StandardCharsets.UTF_8)), good);

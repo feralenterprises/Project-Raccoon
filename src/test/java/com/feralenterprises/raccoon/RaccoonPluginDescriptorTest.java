@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.feralenterprises.raccoon.account.AccountLifecycleService;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -61,8 +62,11 @@ public class RaccoonPluginDescriptorTest
 	@Test
 	public void lifecycleIsSideEffectFree()
 	{
-		RaccoonPlugin plugin = new RaccoonPlugin();
+		AccountLifecycleService service = new AccountLifecycleService(() -> "LOGIN_SCREEN", () -> -1L,
+			java.util.Collections::emptySet, System::nanoTime);
+		RaccoonPlugin plugin = new RaccoonPlugin(service);
 		plugin.startUp();
+		assertFalse(service.view().snapshot().isPublishable());
 		plugin.shutDown();
 	}
 }

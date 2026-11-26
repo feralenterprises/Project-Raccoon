@@ -12,7 +12,8 @@ repository.
 | `build.gradle` structure | `runelite/example-plugin` @ `46e14f2c` | BSD-2-Clause | Renamed, versions pinned, reproducible archives |
 | `src/test/resources/logback-test.xml` | `runelite/example-plugin` @ `46e14f2c` | BSD-2-Clause | Logger name changed |
 
-**Donor code imported: none.**
+**Donor code imported: none** (FR-000 to FR-002). The account lifecycle is new code written to
+the R03 §10 contract; Burrow was not accessed and no parity with it is claimed.
 
 ## Rules for future imports
 
