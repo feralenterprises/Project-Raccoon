@@ -35,11 +35,31 @@ result; that gate is FR-001.
 The post-processed JAR embeds the commit prefix in `runelite_plugin.json`, so every commit
 produces a different JAR hash. Each push produces its own retained receipt.
 
+## FR-001 — accepted receipt (roadmap source)
+
+Issue #1 names the FR-000 source `cb3bc8b1942377de8e95711d8d57e45b6b1f003c` for FR-001. The first
+FR-001 runs packaged later commits (identical plugin source), so this exact commit was packaged
+on 2026-11-26 and its receipt independently re-verified on a fresh runner.
+
+| Item | Value |
+|---|---|
+| Accepted source SHA | `cb3bc8b1942377de8e95711d8d57e45b6b1f003c` |
+| Packager | plugin-hub-tooling `v6` (`c9e2fb4fb1d49a860ef68bc6fe34c0dab4f60aa9`), bundle `8ca79aa7…fe76acd` |
+| Post-processed JAR | **1,690 bytes**, SHA-256 `509fef9d67fd1cb2188562b73e761e8356be48c97dda2fd76225de88e5b69e3d` |
+| Retained | artifact `15156441662` (`fr-001-official-package-cb3bc8b1…`), run `45901758622`, zip digest `sha256:f3887911eb6b48d10920bc50acfde8907c21a6388897598e89b33cfa26c45453`, expires 2027-02-24 |
+| Packaging job | `140188975299` |
+| Independent verification job | `140189267305`: SHA256SUMS OK, evidence names the commit, source archive 22/22 files equal the commit tree, verifier `packaged` PASS (major 55, 7 entries) |
+| Earlier receipts re-verified | `f3a73150` (1,691 B, `cdba98e7…`) job `140188975677`; `65aac3d2` (1,690 B, `25a3eed6…`) job `140188975528` |
+
+The post-processed JAR embeds packaging-time metadata (`runelite_plugin.json`), so repackaging
+the same commit gives a different hash; the retained artifact above is the accepted one.
+
 ## Size history (SR-6)
 
 | Handback | Source | Dev JAR bytes | Dev JAR SHA-256 | Official JAR bytes | Official JAR SHA-256 | Δ official |
 |---|---|---|---|---|---|---|
 | FR-000 | `cb3bc8b1` | 1,326 | `96edc7c9…a97c1ea` | not run | — | — |
 | FR-001 | `f3a73150` | 1,326 (Δ 0) | `96edc7c9…a97c1ea` | 1,691 | `cdba98e7…5664f4f` | first measurement |
+| FR-001 accepted | `cb3bc8b1` | 1,326 | `96edc7c9…a97c1ea` | 1,690 | `509fef9d…b69e3d` | −1 vs `f3a73150` (metadata) |
 
 Limits: foundation 262,144 bytes · release target < 8,000,000 bytes · ceiling 10,485,760 bytes.
