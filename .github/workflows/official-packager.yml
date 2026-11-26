@@ -21,6 +21,11 @@ permissions:
 jobs:
   package:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # head = this push; cb3bc8b1 = accepted FR-000 source named by roadmap issue #1
+        target: [head, cb3bc8b1942377de8e95711d8d57e45b6b1f003c]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,10 +40,12 @@ jobs:
       - name: Load pins and target commit
         env:
           INPUT_COMMIT: ${{ github.event.inputs.commit }}
+          MATRIX_TARGET: ${{ matrix.target }}
         run: |
           set -eu
           pin() { sed -n "s/^$1=//p" source/release/pins.properties | sed 's/\\:/:/g'; }
-          commit="${INPUT_COMMIT:-$GITHUB_SHA}"
+          if [ "$MATRIX_TARGET" = head ]; then default=$GITHUB_SHA; else default=$MATRIX_TARGET; fi
+          commit="${INPUT_COMMIT:-$default}"
           echo "$commit" | grep -Eq '^[0-9a-f]{40}$' || { echo "::error::commit must be a full 40-hex SHA"; exit 1; }
           {
             echo "TARGET_COMMIT=$commit"
@@ -174,3 +181,79 @@ jobs:
           path: retained/
           retention-days: 90
           if-no-files-found: warn
+
+  verify-retained:
+    # Fresh runner: download each receipt this run retained and verify it from storage.
+    needs: package
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [head, cb3bc8b1942377de8e95711d8d57e45b6b1f003c]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 11.0.33+10
+
+      - name: Resolve commit
+        env:
+          MATRIX_TARGET: ${{ matrix.target }}
+          INPUT_COMMIT: ${{ github.event.inputs.commit }}
+        run: |
+          if [ "$MATRIX_TARGET" = head ]; then default=$GITHUB_SHA; else default=$MATRIX_TARGET; fi
+          echo "TARGET_COMMIT=${INPUT_COMMIT:-$default}" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: fr-001-official-package-${{ env.TARGET_COMMIT }}
+          path: receipt
+
+      - name: Verify retained receipt
+        run: source/tools/verify/verify-retained.sh receipt "$TARGET_COMMIT" source
+
+  verify-recorded:
+    # Re-verify receipts already reported in handbacks, downloaded from their original runs.
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - commit: f3a73150c624749785e271646bef3c5f4a43c861
+            run: 45893596318
+            sha256: cdba98e78707174d2045924d608b2a2e3591aa091cfec58f82be3111d5664f4f
+            bytes: 1691
+          - commit: 65aac3d21d40698f0bbc3c67976afc5707fb280a
+            run: 45893790340
+            sha256: 25a3eed6acd5b48e67f6878a48dca059c5e11d36281ea361a57b523966b10ec2
+            bytes: 1690
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 11.0.33+10
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: fr-001-official-package-${{ matrix.commit }}
+          path: receipt
+          run-id: ${{ matrix.run }}
+          github-token: ${{ github.token }}
+
+      - name: Verify recorded receipt
+        run: source/tools/verify/verify-retained.sh receipt "${{ matrix.commit }}" source "${{ matrix.sha256 }}" "${{ matrix.bytes }}"
