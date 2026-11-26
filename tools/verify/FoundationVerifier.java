@@ -74,6 +74,7 @@ public class FoundationVerifier
 		"net/runelite/client/plugins/PluginDescriptor",
 		// FR-002 account lifecycle adapter: client phase, account hash, world type, ticks
 		"net/runelite/api/Client",
+		"com/jagex/oldscape/pub/OAuthApi", // declares Client.getAccountHash()
 		"net/runelite/api/GameState",
 		"net/runelite/api/WorldType",
 		"net/runelite/api/events/GameStateChanged",
@@ -769,7 +770,7 @@ public class FoundationVerifier
 			}
 			if (!ALLOWED_EXTERNAL_EXACT.contains(ref) && ALLOWED_EXTERNAL_PREFIXES.stream().noneMatch(ref::startsWith))
 			{
-				v.add("reference outside FR-000 allowed surface " + ref + " in " + entry);
+				v.add("reference outside the allowed surface " + ref + " in " + entry);
 			}
 		}
 		for (String[] m : ci.methodRefs)
@@ -998,7 +999,7 @@ public class FoundationVerifier
 		artifactCase("UI rejected", out, tmp, max, "forbidden UI", Collections.emptyMap(), good, "com/feralenterprises/raccoon/bad/Ui.class");
 		artifactCase("file I/O rejected", out, tmp, max, "forbidden file", Collections.emptyMap(), good, "com/feralenterprises/raccoon/bad/Disk.class");
 		artifactCase("Thread.sleep rejected", out, tmp, max, "forbidden call java/lang/Thread.sleep", Collections.emptyMap(), good, "com/feralenterprises/raccoon/bad/Sleep.class");
-		artifactCase("broad host import rejected", out, tmp, max, "outside FR-000 allowed surface", Collections.emptyMap(), good, "com/feralenterprises/raccoon/bad/HostImport.class");
+		artifactCase("broad host import rejected", out, tmp, max, "outside the allowed surface", Collections.emptyMap(), good, "com/feralenterprises/raccoon/bad/HostImport.class");
 		artifactCase("lifecycle adapter RuneLite types allowed", out, tmp, max, null, Collections.emptyMap(), good,
 			"com/feralenterprises/raccoon/account/Adapter.class");
 		artifactCase("observer API (ItemContainer) still rejected", out, tmp, max, "forbidden game observation", Collections.emptyMap(), good,

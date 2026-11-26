@@ -26,7 +26,8 @@ com.feralenterprises.raccoon.core.account    account lifecycle: single source of
 - `core` must never depend on the plugin package, on RuneLite, or on any other library.
 - The plugin package may use only the FR-000 surface: `java.lang`, `java.util`, `java.time`,
   `javax.inject`, `com.google.inject`, `org.slf4j`, and `net.runelite.client.plugins.Plugin` /
-  `PluginDescriptor`, plus (FR-002, exact types only) `net.runelite.api.Client`, `GameState`,
+  `PluginDescriptor`, plus (FR-002, exact types only) `net.runelite.api.Client` (and `com.jagex.oldscape.pub.OAuthApi`, which declares
+  `getAccountHash`), `GameState`,
   `WorldType`, `events.GameStateChanged`, `events.GameTick`, `events.ClientTick` and
   `net.runelite.client.eventbus.Subscribe`. All other `net.runelite.api` types stay forbidden.
 - Account state lives only in `core.account.AccountLifecycle` (see `docs/account-lifecycle.md`);
