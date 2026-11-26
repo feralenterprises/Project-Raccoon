@@ -115,6 +115,23 @@ the same commit gives a different hash; the retained artifact above is the accep
 | Retained | artifact `15160040730` (zip `sha256:eb179a3a3ef0624f9aacd16b3a3611eecbd2b71192db3324c602c847540e6414`), run `45910387217`; fresh-runner job `140217308730`, source archive 77/77 |
 | CI jobs | foundation `140217064267`, `140217078672`; package head `140217064345`; 6 earlier receipts re-verified |
 
+## FR-003 — independent review repair (2026-11-26)
+
+**Status: awaiting independent re-review (not accepted).**
+
+| Item | Value |
+|---|---|
+| Donor reconciliation (before code) | `98c35ad8474d39ad5845ab73fb4d09fa0e70d03f` (Burrow `eb962df3`, three files, read-only) |
+| Reproduction | `dd814398cecb0b5a6ce4836208fb7be17fea8a7b`: 21 tests (20 failing, 1 guard); CI build/test failed (jobs `140221820130`, `140221837782`) |
+| Repair | `407c68b851d529a8ad0728145b851cf1485e12ef` (one of two CI runs failed; diagnosed below) |
+| CI diagnostics | `7f76ee5e8fec57287e07f15873e08f0bb42faddc`: failure annotations; both runs then showed `LifecycleConcurrencyTest` "delivery after cancel" |
+| FR-002 contract fix | `312e5e8c54487354d9d957e04ea7a92aa04fcee8`: `cancel()` waits for an in-progress delivery (lifecycle and bank tracker) |
+| Tests @ `312e5e8c` | 10 suites, **160 tests**, 0 failures/errors/skips, both CI runs; verifier 40/40 |
+| Development JAR | **65,916 bytes**, SHA-256 `101a22b5d4deeae77f97a3a19c8370d62d6f8f5a32e849c261873aea89a400d5`, 50 classes, major 55 |
+| Official post-processed JAR | **66,280 bytes**, SHA-256 `b27cfb326b16f3bcff5c7e51970f8147ecab4d305352fdc3ce7e2f219d9b51e3` |
+| Retained | artifact `15161276694` (zip `sha256:a6019101a3d2f5cee189120908dcf03272b6a48cbd2ba0f229fee13c0df625cd`), run `45913262497`; fresh-runner job `140226611409`, source archive 78/78 |
+| CI jobs | foundation `140226372467`, `140226387143`; package head `140226373359`; 7 earlier receipts re-verified |
+
 ## Size history (SR-6)
 
 | Handback | Source | Dev JAR bytes | Dev JAR SHA-256 | Official JAR bytes | Official JAR SHA-256 | Δ official |
@@ -126,5 +143,6 @@ the same commit gives a different hash; the retained artifact above is the accep
 | FR-002 repair | `aedb673d` | 30,106 (+2,708) | `095b1425…302ce7c` | 30,469 | `3b41e7ed…91ae8fe` | +2,706 vs `9257838f` (freshness, delivery, gate: 24 classes) |
 | FR-002 re-review repair | `9e625d23` | 30,385 (+279) | `01223c91…fa823a3` | 30,749 | `6fefbf4b…ab5354` | +280 vs `aedb673d` |
 | FR-003 | `4d7ac595` | 63,214 (+32,829) | `ae387b9f…245e4e4` | 63,578 | `c33070c6…747de583` | +32,829 vs `9e625d23` (bank observation: 26 classes) |
+| FR-003 review repair | `312e5e8c` | 65,916 (+2,702) | `101a22b5…89a400d5` | 66,280 | `b27cfb32…9d9b51e3` | +2,702 vs `4d7ac595` |
 
 Limits: foundation 262,144 bytes · release target < 8,000,000 bytes · ceiling 10,485,760 bytes.
