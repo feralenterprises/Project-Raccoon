@@ -17,6 +17,15 @@ public final class ConsumerScopeGate
 {
 	private AccountSnapshot latest;
 
+	public ConsumerScopeGate()
+	{
+	}
+
+	/** Not yet used (reproduction commit); the repair makes this the only constructor. */
+	public ConsumerScopeGate(AccountLifecycleView authority)
+	{
+	}
+
 	/**
 	 * Records a snapshot. Returns true if it is newer than any seen before (the consumer should
 	 * re-render, clearing everything if it is not publishable); false if stale and ignored.

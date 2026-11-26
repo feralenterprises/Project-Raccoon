@@ -171,4 +171,82 @@ public class AuditRegressionTest
 		h.phase(ClientPhase.LOGGED_IN).tick(B);
 		assertTrue(h.snap().isPublishable());
 	}
+
+	// Re-review 2026-11-26 (419a1708): contradictory identity during suspension in a non-LOGGED_IN phase.
+
+	@Test
+	public void rereview_contradictoryIdentityDuringHopLoadingRetiresHeldLogin()
+	{
+		h.loggedInAs(A);
+		AccountScope before = h.scope();
+		kcTotals.set(before, 7);
+		h.phase(ClientPhase.HOPPING).phase(ClientPhase.LOADING).tick(B, WORLD);
+		assertEquals(AccountState.RETIRED, h.snap().state());
+		assertEquals(RetireReason.DIFFERENT_ACCOUNT, h.snap().lastRetireReason());
+		assertFalse("activation still requires LOGGED_IN", h.snap().isPublishable());
+
+		h.phase(ClientPhase.LOGGED_IN).tick(A);
+		assertTrue(h.snap().isPublishable());
+		assertFalse("held login must not survive a contradictory identity", h.scope().sameLogin(before));
+		assertEquals(Optional.empty(), kcTotals.get());
+	}
+
+	@Test
+	public void rereview_contradictoryIdentityWhileHoppingRetiresHeldLogin()
+	{
+		h.loggedInAs(A);
+		AccountScope before = h.scope();
+		h.phase(ClientPhase.HOPPING).tick(B, WORLD);
+		assertEquals(RetireReason.DIFFERENT_ACCOUNT, h.snap().lastRetireReason());
+		h.phase(ClientPhase.LOGGED_IN).tick(A);
+		assertFalse(h.scope().sameLogin(before));
+	}
+
+	@Test
+	public void rereview_sameIdentityBeforeLoggedInDoesNotRestore()
+	{
+		h.loggedInAs(A);
+		AccountScope before = h.scope();
+		h.phase(ClientPhase.HOPPING).phase(ClientPhase.LOADING).tick(A);
+		assertEquals(AccountState.SUSPENDED_CONTINUITY, h.snap().state());
+		h.phase(ClientPhase.LOGGED_IN).tick(A);
+		assertTrue(h.scope().sameLogin(before));
+	}
+
+	// Re-review: authority from before LOADING must not be regained after revalidation.
+
+	@Test
+	public void rereview_scopeFromBeforeLoadingHasNoAuthorityAfterRevalidation()
+	{
+		AccountSlot<Integer> epochData = h.lifecycle.epochSlot("epoch-data");
+		h.loggedInAs(A);
+		AccountScope before = h.scope();
+		epochData.set(before, 3);
+		java.util.concurrent.atomic.AtomicInteger ran = new java.util.concurrent.atomic.AtomicInteger();
+		Runnable late = h.lifecycle.fenced(before, ran::incrementAndGet);
+
+		h.phase(ClientPhase.LOADING).phase(ClientPhase.LOGGED_IN).tick(A);
+		AccountScope after = h.scope();
+		assertEquals("region change keeps the epoch", before.epoch(), after.epoch());
+		assertTrue(before.sameLogin(after));
+		late.run();
+		assertEquals("callback from before LOADING is discarded", 0, ran.get());
+		assertFalse("write with pre-LOADING scope is rejected", epochData.set(before, 4));
+		assertFalse(h.lifecycle.isCurrent(before));
+		assertEquals("epoch data survives the region change", Optional.of(3), epochData.get(after));
+	}
+
+	// Re-review: the consumer gate must check authority when a value is applied.
+
+	@Test
+	public void rereview_gateRejectsValueAppliedBeforeQueuedRetirementArrives()
+	{
+		ConsumerScopeGate gate = new ConsumerScopeGate(h.lifecycle);
+		h.loggedInAs(A);
+		AccountScope a = h.scope();
+		gate.onSnapshot(h.snap());
+		// the lifecycle retires A; the retirement snapshot is still queued for the consumer
+		h.tick(B);
+		assertFalse("stale value must be rejected at application time", gate.accepts(a));
+	}
 }
