@@ -130,7 +130,7 @@ public class LifecycleConcurrencyTest
 		{
 			while (!done.get())
 			{
-				List<Long> seen = new ArrayList<>();
+				List<Long> seen = new CopyOnWriteArrayList<>();
 				Subscription sub = lc.subscribe(s -> seen.add(s.revision()));
 				lc.poll(clock.get());
 				sub.cancel();

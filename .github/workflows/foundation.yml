@@ -39,7 +39,25 @@ jobs:
         run: java tools/verify/FoundationVerifier.java source .
 
       - name: Clean build and tests
-        run: ./gradlew --no-daemon --no-build-cache clean build
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --no-build-cache clean build 2>&1 | tee "${RUNNER_TEMP}/gradle-build.log"
+
+      - name: Surface failed tests
+        if: failure()
+        run: |
+          python3 -I - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          for f in glob.glob("build/test-results/test/*.xml"):
+              for case in ET.parse(f).getroot().iter("testcase"):
+                  for bad in list(case.findall("failure")) + list(case.findall("error")):
+                      msg = (bad.get("message") or bad.text or "").replace("%", "%25").replace("\r", "").replace("\n", "%0A")[:900]
+                      print(f"::error title=test {case.get('classname')}.{case.get('name')}::{msg}")
+          PY
+          if [ -f "${RUNNER_TEMP}/gradle-build.log" ]; then
+            msg=$(grep -E 'FAILED|FAILURE|error:|What went wrong|Could not|Exception' "${RUNNER_TEMP}/gradle-build.log" | head -n 40 | cut -c1-300 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=gradle build log::${msg:-no matching lines}"
+          fi
 
       - name: Test counts
         run: java tools/verify/FoundationVerifier.java tests build/test-results/test
