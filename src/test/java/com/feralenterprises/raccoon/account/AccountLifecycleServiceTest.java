@@ -118,6 +118,30 @@ public class AccountLifecycleServiceTest
 	}
 
 	@Test
+	public void finding4_tickReconcilesPhaseWithClient()
+	{
+		// last event said LOGGED_IN, but the client is loading when the tick is processed
+		service.start();
+		service.onGameState("LOGGED_IN");
+		service.onGameTick();
+		assertTrue(service.view().snapshot().isPublishable());
+		gameState = "LOADING";
+		service.onGameTick();
+		assertFalse("stale adapter phase must not keep data publishable", service.view().snapshot().isPublishable());
+	}
+
+	@Test
+	public void finding4_unreadableGameStateAtTickIsNotLoggedIn()
+	{
+		service.start();
+		service.onGameState("LOGGED_IN");
+		service.onGameTick();
+		gameState = null;
+		service.onGameTick();
+		assertFalse(service.view().snapshot().isPublishable());
+	}
+
+	@Test
 	public void worldPolicyAllowsOnlyStandardWorlds()
 	{
 		assertTrue(WorldPolicy.evaluate(Collections.emptySet()).isSupported());
