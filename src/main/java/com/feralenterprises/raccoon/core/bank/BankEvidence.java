@@ -19,8 +19,9 @@ public final class BankEvidence
 	private final CarriedEvidence inventory;
 	private final CarriedEvidence equipment;
 	private final TabWitness witness;
+	private final long generation;
 
-	BankEvidence(AccountScope scope, long firstTick, long lastTick, Map<Integer, Integer> contents, CarriedEvidence inventory,
+	BankEvidence(long generation, AccountScope scope, long firstTick, long lastTick, Map<Integer, Integer> contents, CarriedEvidence inventory,
 		CarriedEvidence equipment, TabWitness witness)
 	{
 		this.scope = scope;
@@ -30,6 +31,16 @@ public final class BankEvidence
 		this.inventory = inventory;
 		this.equipment = equipment;
 		this.witness = witness;
+		this.generation = generation;
+	}
+
+	/**
+	 * Unique per qualification. Bank results derived from this evidence are valid only while
+	 * {@link BankObservationView#isCurrent(BankEvidence)} holds; account scope alone is not enough.
+	 */
+	public long generation()
+	{
+		return generation;
 	}
 
 	/** Scope (including authority) this evidence was qualified under. */
@@ -44,7 +55,7 @@ public final class BankEvidence
 		return firstTick;
 	}
 
-	/** Tick of the latest matching observation. */
+	/** Tick on which the streak qualified (unchanged revalidation does not move it). */
 	public long lastTick()
 	{
 		return lastTick;
@@ -79,7 +90,7 @@ public final class BankEvidence
 	@Override
 	public String toString()
 	{
-		return "BankEvidence[" + scope + ", ticks " + firstTick + ".." + lastTick + ", " + contents.size() + " items, inv "
+		return "BankEvidence[gen " + generation + ", " + scope + ", ticks " + firstTick + ".." + lastTick + ", " + contents.size() + " items, inv "
 			+ inventory + ", worn " + equipment + "]";
 	}
 }

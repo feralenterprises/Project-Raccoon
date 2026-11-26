@@ -8,7 +8,7 @@ governing plan, which is kept out of public source; only IDs and status are reco
 | FR-000 Scaffold | build, pins, governance, first-build checks | Done (handed back) |
 | FR-001 Official packager | strict non-upload post-processed JAR ≤ 256 KiB | Accepted: `cb3bc8b1` receipt (see release evidence) |
 | FR-002 Account lifecycle | A01–A06 | Accepted at `abf11bfa` (independent review) |
-| FR-003 Read-only bank observation | B01–B10 | Implemented; awaiting independent review (cases → tests in `docs/bank-observation.md`) |
+| FR-003 Read-only bank observation | B01–B10 | Review repair; awaiting independent re-review (not accepted) |
 | FR-004 Brutus-only typed chat KC | K01–K05 | Pending |
 | FR-005 Foundation audit | regressions, performance | Pending |
 | FR-006 Windows verification | R1–R4 | Pending |

@@ -183,7 +183,8 @@ public class BankObservationTrackerTest
 		assertEquals(BankReason.READ_FAILURE, h.reason());
 		assertNoClaims();
 		h.captureThrows = false;
-		h.tick();
+		// donor cadence: next attempt RETRY_TICKS after the failure, then a fresh streak
+		h.ticks(BankObservationTracker.RETRY_TICKS);
 		assertFalse(h.status() == BankStatus.QUALIFIED_CURRENT);
 		h.tick();
 		assertQualified();
@@ -197,6 +198,7 @@ public class BankObservationTrackerTest
 		h.tick();
 		assertEquals(BankReason.READ_FAILURE, h.reason());
 		h.bankOverride = null;
+		h.ticks(BankObservationTracker.RETRY_TICKS - 1); // donor cadence after the failed capture
 		qualify();
 		h.visibilityThrows = true;
 		h.tick();
@@ -424,10 +426,14 @@ public class BankObservationTrackerTest
 	}
 
 	@Test
-	public void b07_carriedChangesDoNotResetTheBankStreak()
+	public void b07_carriedChangesRestartTheStreak()
 	{
+		// FR-003 review repair 1: carried maps take part in the stability contract (donor sameContent)
 		h.tick();
 		h.inventory = ContainerRead.present(Arrays.asList(RawSlot.item(COINS, 6)));
+		h.tick();
+		assertEquals(BankReason.EVIDENCE_CHANGED, h.reason());
+		assertNoClaims();
 		h.tick();
 		assertQualified();
 		assertEquals(1006, h.tracker.combinedOwnership(COINS).quantity());
@@ -550,7 +556,7 @@ public class BankObservationTrackerTest
 		assertEquals(BankReason.MALFORMED_QUANTITY, h.reason());
 		assertNoClaims();
 		h.bankSlots = slots(RawSlot.item(COINS, 1000), RawSlot.item(LOBSTER, 20), RawSlot.empty());
-		h.tick();
+		h.ticks(BankObservationTracker.RETRY_TICKS); // donor cadence, then the first fresh observation
 		assertNoClaims();
 		h.tick();
 		assertQualified();
@@ -629,13 +635,18 @@ public class BankObservationTrackerTest
 	@Test
 	public void successfulCaptureResetsTheFailureBudget()
 	{
+		// 3 rounds of (MAX - 1) failures, each followed by a success, never reach the bound
 		for (int i = 0; i < 3; i++)
 		{
 			h.captureThrows = true;
-			h.ticks(BankObservationTracker.MAX_FAILED_ATTEMPTS - 1);
+			for (int f = 0; f < BankObservationTracker.MAX_FAILED_ATTEMPTS - 1; f++)
+			{
+				h.ticks(BankObservationTracker.RETRY_TICKS);
+			}
 			h.captureThrows = false;
-			h.tick();
+			h.ticks(BankObservationTracker.RETRY_TICKS);
 		}
+		assertFalse("the bound is never reached", h.published.stream().anyMatch(x -> x.reason() == BankReason.RETRY_LIMIT));
 		h.tick();
 		assertQualified();
 	}

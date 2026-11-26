@@ -98,6 +98,13 @@ cleared totals (data is never shown wrongly). Native confirmation belongs to FR-
   unknown future types, yields no observations.
 - Diagnostics (`toString` of every lifecycle type) never contain the account hash; tested.
 
+## Identity confirmation for observers
+
+`AccountLifecycleView.confirms(scope, reading)` returns true only if the scope is current and the
+reading is a verified identity of that scope's account. Observers (FR-003 bank capture) read the
+client identity before and after a capture and ask the lifecycle; the hash is never exposed and
+no second account authority exists.
+
 ## Threading and delivery
 
 - Inputs arrive on the client thread and are synchronized, so a plugin stop racing a tick stays

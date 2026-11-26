@@ -20,4 +20,11 @@ public interface AccountLifecycleView
 	 * still current; delayed callbacks after stop, account switch or epoch change are discarded.
 	 */
 	Runnable fenced(AccountScope scope, Runnable work);
+
+	/**
+	 * True only if {@code scope} is current and {@code reading} is a verified identity of that
+	 * scope's account. Lets observers check identity read during a capture against the central
+	 * authority; the account hash itself is never exposed.
+	 */
+	boolean confirms(AccountScope scope, IdentityReading reading);
 }

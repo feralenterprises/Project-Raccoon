@@ -56,7 +56,7 @@ transitions.
 
 | Type | Use |
 |---|---|
-| `BankObservationView` | `snapshot()`, `subscribe(listener)`, `bankOwnership(itemId)`, `combinedOwnership(itemId)`. Obtain via `BankObservationService.view()`. |
+| `BankObservationView` | `snapshot()`, `subscribe(listener)`, `bankOwnership(itemId)`, `combinedOwnership(itemId)`, `isCurrent(evidence)`, `fenced(evidence, work)`. Obtain via `BankObservationService.view()`. |
 | `BankSnapshot` | Immutable: `status()`, `reason()`, `current()` (only `QUALIFIED_CURRENT`), `historical()` (only `HISTORICAL`), `streak()`, `revision()`. |
 | `BankEvidence` | Contents (item id → quantity), `inventory()` / `equipment()` (`CarriedEvidence`, possibly unreported), `firstTick()` / `lastTick()`, `scope()`. |
 | `Ownership` | `OWNED` (with quantity), `NOT_OWNED`, `UNKNOWN`. |
@@ -68,8 +68,14 @@ Rules:
    `UNKNOWN`; never infer "not owned" from `DEGRADED_POPULATED`, `WAITING` or `HISTORICAL`.
 2. **`HISTORICAL` is provenance only:** show it as "last seen at tick N" if at all, never as current.
 3. **Unreported is not empty:** `CarriedEvidence.isReported() == false` means unknown.
-4. **Re-tag on scope change:** bank evidence carries its `AccountScope`; gate any value derived from
-   it with `ConsumerScopeGate.accepts(evidence.scope())` on your thread, as for account data.
+4. **Fence on the evidence, not only the account scope:** any value derived from bank evidence is
+   applied only if `bank.isCurrent(evidence)` holds at that moment (and, on your own thread,
+   `ConsumerScopeGate.accepts(evidence.scope())`). After the bank closes or a revalidation fails the
+   account scope can still be current while the evidence is not.
+7. **Qualification is announced once.** While the same evidence stays current no new snapshot is
+   published; do not poll for "freshness". A new `generation()` means new evidence.
+8. **History follows the account.** A published `HISTORICAL` snapshot is withdrawn as soon as the
+   account stops being publishable, logs out, retires or changes, even if the bank was already closed.
 5. Bank listeners run on the client thread under the tracker lock: enqueue only, never block.
 6. Call `bankOwnership` on the client thread or accept that it reflects the moment of the call.
 

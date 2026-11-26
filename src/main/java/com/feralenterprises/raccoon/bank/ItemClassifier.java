@@ -15,9 +15,13 @@ final class ItemClassifier
 	{
 	}
 
-	/** Reproduction stub: the definition id is not yet checked. */
+	/** The definition must describe the slot's own item id (donor rule), else unreadable. */
 	static ItemKind classify(int itemId, int definitionId, int placeholderTemplateId, int note)
 	{
+		if (definitionId != itemId)
+		{
+			return ItemKind.UNREADABLE;
+		}
 		return classify(itemId, placeholderTemplateId, note);
 	}
 

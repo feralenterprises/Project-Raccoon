@@ -543,6 +543,15 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 		};
 	}
 
+	@Override
+	public boolean confirms(AccountScope scope, IdentityReading reading)
+	{
+		synchronized (lock)
+		{
+			return reading != null && reading.isVerified() && isCurrent(scope) && reading.hash() == sessionHash;
+		}
+	}
+
 	/** Current state, for diagnostics; same as {@code snapshot().state()}. */
 	public AccountState state()
 	{

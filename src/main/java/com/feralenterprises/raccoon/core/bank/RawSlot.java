@@ -47,6 +47,23 @@ public final class RawSlot
 	}
 
 	@Override
+	public boolean equals(Object o)
+	{
+		if (!(o instanceof RawSlot))
+		{
+			return false;
+		}
+		RawSlot r = (RawSlot) o;
+		return r.itemId == itemId && r.quantity == quantity && r.kind == kind;
+	}
+
+	@Override
+	public int hashCode()
+	{
+		return (itemId * 31 + quantity) * 31 + kind.hashCode();
+	}
+
+	@Override
 	public String toString()
 	{
 		return "RawSlot[" + itemId + " x" + quantity + " " + kind + "]";

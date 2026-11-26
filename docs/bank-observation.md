@@ -64,8 +64,12 @@ identity, current scope authority), the bank interface is visible, the PIN keypa
 this tick index has not been seen, and the retry budget for this open-bank session is not
 exhausted. At most one attempt per tick. Nothing is read while the bank is closed.
 
-A captured frame is **valid** when:
+The bank is open only when `Bankmain.UNIVERSE` and its item widget `Bankmain.ITEMS` are visible
+and the PIN keypad is not; root visible but items hidden is `ITEMS_NOT_READY` (no capture, current
+authority revoked). A captured frame is **valid** when:
 
+- the BANK container has at most 4096 raw slots and each carried container at most 40 (donor bounds);
+- every item definition describes the slot's own id (`def.getId() == id`);
 - the `BANK` container (`InventoryID.BANK = 95`) is present and readable;
 - every slot is well formed: an empty slot is `id = -1, quantity = 0`; a real item has
   `id >= 0`, a readable definition and `quantity >= 1`; placeholders and filler have
@@ -88,7 +92,22 @@ above (B05).
 ## Streak and authority
 
 - Two observations *match* when they are on consecutive tick indices (`t` then `t + 1`), under the
-  same scope (including authority), with the same known witness and identical bank contents.
+  same scope (including authority), with the same exact witness, the identical raw BANK slot
+  sequence (id, quantity, kind), identical bank contents, and identical inventory and equipment
+  evidence including whether each was reported. A changed valid sample starts a fresh streak at 1.
+- Qualification is announced once: unchanged revalidation keeps the same `BankEvidence` and
+  publishes nothing; any failure or change revokes it at once.
+- Every qualification has a new evidence **generation**. Bank results are fenced by
+  `BankObservationView.isCurrent(evidence)` / `fenced(evidence, work)`: false after the bank closes,
+  a failed revalidation, a changed sample or any scope change, even when the account scope alone is
+  still current.
+- A capture is accepted only if the client phase was `LOGGED_IN` and the account identity read
+  before **and** after the container reads is confirmed by the lifecycle (`confirms(scope, reading)`)
+  as the current session's account. Otherwise `IDENTITY_CHANGED`.
+- After a failed capture the next attempt waits `RETRY_TICKS = 3` ticks (donor cadence); a changing
+  valid sample is re-read on the next tick.
+- The published history follows every lifecycle change: masked while not publishable, gone after
+  stop, logout, retirement or an account change, even when the bank was already closed.
 - Populated bank: 2 matching valid observations with a known witness → `QUALIFIED_CURRENT`.
 - Empty bank: 3 matching valid observations with a known witness → `QUALIFIED_CURRENT`.
 - Unknown witness: a populated valid observation gives `DEGRADED_POPULATED` only, never authority;
@@ -131,6 +150,7 @@ All RuneLite names were checked against the pinned 1.13.8 source (`8397ec71`): `
 | B09 | `b09_*` (5): close revokes and keeps same-login history; no capture while closed; reopen needs fresh streak; history cleared on retirement; history survives a same-login hop but never becomes current |
 | B10 | `b10_*` (4): evaluation failure after populated acceptance; pre-read failure and evaluation failure after empty acceptance; stale result |
 | Limits | retry bound, no capture while not publishable, failure budget reset, ordered snapshots, no hash in diagnostics; adapter wiring and item classification |
+| Review repair 2026-11-26 | `BankRepairRegressionTest` (21: 20 reproduced the findings at `dd814398`, 1 guard): raw slots, carried maps and flags, equipment, single announcement, history after stop/logout/account change/non-publishable, generation fencing, before/after identity and phase, bounds, cadence; adapter: item widget, definition identity |
 
 Mutation check (local): 13 deliberate rule removals (streak lengths, consecutive ticks, post-capture
 scope check, unknown witness, scope-change revocation, retry bound, capture while closed, duplicate
@@ -138,7 +158,8 @@ tick, combined overflow, missing = empty, witness slot check, noted counted) are
 
 ## Remaining limitations
 
-- Burrow not accessible: no parity; noted-variant policy and retry bound provisional.
+- Donor reviewed from three files only (see reconciliation table); full parity not claimed. The
+  R03 retry bound (5) and stricter noted handling remain Raccoon choices.
 - RuneLite reads are compile-verified against the pinned API and covered by fakes; behaviour in a
   real client (widget visibility during PIN, container timing, Bank Tags layouts) needs FR-006.
 - Carried items are evidence for the observed tick only; they do not take part in streak matching.

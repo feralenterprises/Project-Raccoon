@@ -36,21 +36,6 @@ public final class BankFrame
 		this.identityAfter = identityAfter;
 	}
 
-	public BankFrame(AccountScope scope, long tickIndex, ContainerRead bank, ContainerRead inventory, ContainerRead equipment,
-		TabWitness witness)
-	{
-		this.phaseBefore = null;
-		this.identityBefore = null;
-		this.phaseAfter = null;
-		this.identityAfter = null;
-		this.scope = scope;
-		this.tickIndex = tickIndex;
-		this.bank = Objects.requireNonNull(bank);
-		this.inventory = Objects.requireNonNull(inventory);
-		this.equipment = Objects.requireNonNull(equipment);
-		this.witness = Objects.requireNonNull(witness);
-	}
-
 	public AccountScope scope()
 	{
 		return scope;

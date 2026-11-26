@@ -12,18 +12,24 @@ final class BankEvaluator
 	{
 	}
 
+	/** Donor bounds (BankCaptureGate.MAX_BANK_ENTRIES / MAX_CARRIED_ENTRIES). */
+	static final int MAX_BANK_SLOTS = 4096;
+	static final int MAX_CARRIED_SLOTS = 40;
+
 	static final class Evaluation
 	{
 		final BankReason failure;
+		final java.util.List<RawSlot> rawBank;
 		final Map<Integer, Integer> contents;
 		final CarriedEvidence inventory;
 		final CarriedEvidence equipment;
 		final TabWitness witness;
 
-		private Evaluation(BankReason failure, Map<Integer, Integer> contents, CarriedEvidence inventory,
-			CarriedEvidence equipment, TabWitness witness)
+		private Evaluation(BankReason failure, java.util.List<RawSlot> rawBank, Map<Integer, Integer> contents,
+			CarriedEvidence inventory, CarriedEvidence equipment, TabWitness witness)
 		{
 			this.failure = failure;
+			this.rawBank = rawBank;
 			this.contents = contents;
 			this.inventory = inventory;
 			this.equipment = equipment;
@@ -37,7 +43,7 @@ final class BankEvaluator
 
 		static Evaluation invalid(BankReason reason)
 		{
-			return new Evaluation(reason, null, null, null, null);
+			return new Evaluation(reason, null, null, null, null, null);
 		}
 	}
 
@@ -59,6 +65,12 @@ final class BankEvaluator
 				return Evaluation.invalid(BankReason.READ_FAILURE);
 			default:
 				break;
+		}
+		if (frame.bank().slots().size() > MAX_BANK_SLOTS
+			|| frame.inventory().slots().size() > MAX_CARRIED_SLOTS
+			|| frame.equipment().slots().size() > MAX_CARRIED_SLOTS)
+		{
+			return Evaluation.invalid(BankReason.CONTAINER_TOO_LARGE);
 		}
 		Scan bank = scan(frame.bank());
 		if (bank.failure != null)
@@ -123,7 +135,7 @@ final class BankEvaluator
 				return Evaluation.invalid(BankReason.OVERFLOW);
 			}
 		}
-		return new Evaluation(null, bank.totals, carried[0], carried[1], witness);
+		return new Evaluation(null, frame.bank().slots(), bank.totals, carried[0], carried[1], witness);
 	}
 
 	private static Scan scan(ContainerRead read)

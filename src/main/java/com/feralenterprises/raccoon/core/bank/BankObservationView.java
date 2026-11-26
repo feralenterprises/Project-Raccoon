@@ -23,9 +23,14 @@ public interface BankObservationView
 	 */
 	Ownership combinedOwnership(int itemId);
 
-	/** Reproduction stub: currently checks the account scope only. */
+	/**
+	 * Authoritative bank fence: true only if {@code evidence} is the tracker's current
+	 * qualification (same generation) and its account scope is still current. False after the
+	 * bank closes, any failed revalidation, a changed sample or any scope change, even if the
+	 * account scope itself is still current.
+	 */
 	boolean isCurrent(BankEvidence evidence);
 
-	/** Reproduction stub: currently fenced by account scope only. */
+	/** Wraps work derived from {@code evidence}; it runs only if the evidence is still current. */
 	Runnable fenced(BankEvidence evidence, Runnable work);
 }

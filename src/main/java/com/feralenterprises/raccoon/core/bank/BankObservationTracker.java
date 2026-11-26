@@ -5,6 +5,7 @@ import com.feralenterprises.raccoon.core.account.AccountLifecycleView;
 import com.feralenterprises.raccoon.core.account.AccountScope;
 import com.feralenterprises.raccoon.core.account.AccountSlot;
 import com.feralenterprises.raccoon.core.account.AccountSnapshot;
+import com.feralenterprises.raccoon.core.account.ClientPhase;
 import com.feralenterprises.raccoon.core.account.Subscription;
 import java.util.Map;
 import java.util.Objects;
@@ -28,7 +29,7 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 	public static final int EMPTY_STREAK = 3;
 	/** Provisional: consecutive failed capture attempts allowed per open-bank session. */
 	public static final int MAX_FAILED_ATTEMPTS = 5;
-	/** Donor cadence: ticks to wait after a failed capture before the next attempt (not yet used). */
+	/** Donor cadence: ticks to wait after a failed capture before the next attempt. */
 	public static final int RETRY_TICKS = 3;
 
 	private final AccountLifecycleView lifecycle;
@@ -50,7 +51,13 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 	private AccountScope streakScope;
 	private TabWitness streakWitness;
 	private Map<Integer, Integer> streakContents;
+	private java.util.List<RawSlot> streakRawBank;
+	private CarriedEvidence streakInventory;
+	private CarriedEvidence streakEquipment;
 	private int failedAttempts;
+	private boolean retryWait;
+	private long nextAttemptTick;
+	private long generationCounter;
 	private long captureAttempts;
 	private long revision;
 
@@ -76,6 +83,7 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 		{
 			hasLastTick = false;
 			failedAttempts = 0;
+			retryWait = false;
 			invalidate(BankReason.NOT_PUBLISHABLE);
 			return;
 		}
@@ -106,10 +114,14 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 				break;
 			case CLOSED:
 				failedAttempts = 0;
+				retryWait = false;
 				invalidate(BankReason.BANK_CLOSED);
 				return;
 			case PIN:
 				invalidate(BankReason.PIN);
+				return;
+			case ITEMS_NOT_READY:
+				invalidate(BankReason.ITEMS_NOT_READY);
 				return;
 			default:
 				invalidate(BankReason.VISIBILITY_UNREADABLE);
@@ -121,6 +133,12 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 			invalidate(BankReason.RETRY_LIMIT);
 			return;
 		}
+		if (retryWait && tickIndex < nextAttemptTick)
+		{
+			// donor cadence after a failed capture; nothing is current meanwhile
+			return;
+		}
+		retryWait = false;
 
 		captureAttempts++;
 		BankFrame frame;
@@ -134,7 +152,7 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 		}
 		if (frame == null)
 		{
-			fail(BankReason.READ_FAILURE);
+			fail(BankReason.READ_FAILURE, tickIndex);
 			return;
 		}
 		// identity or scope must not have changed during capture, and the frame must be this tick's
@@ -143,20 +161,36 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 			invalidate(BankReason.SCOPE_CHANGED);
 			return;
 		}
+		// before/after client phase and identity, confirmed by the central lifecycle authority
+		if (frame.phaseBefore() != ClientPhase.LOGGED_IN || frame.phaseAfter() != ClientPhase.LOGGED_IN
+			|| !lifecycle.confirms(scope, frame.identityBefore()) || !lifecycle.confirms(scope, frame.identityAfter()))
+		{
+			fail(BankReason.IDENTITY_CHANGED, tickIndex);
+			return;
+		}
 
 		BankEvaluator.Evaluation ev = BankEvaluator.evaluate(frame);
 		if (!ev.valid())
 		{
-			fail(ev.failure);
+			fail(ev.failure, tickIndex);
 			return;
 		}
 		failedAttempts = 0;
 
+		// full stability contract: scope authority, exact witness, raw bank slots, bank contents,
+		// inventory and equipment maps with their reporting flags, on consecutive ticks
 		boolean matches = streak > 0 && consecutive && scope.equals(streakScope) && ev.witness.equals(streakWitness)
-			&& ev.contents.equals(streakContents);
+			&& ev.rawBank.equals(streakRawBank) && ev.contents.equals(streakContents)
+			&& ev.inventory.equals(streakInventory) && ev.equipment.equals(streakEquipment);
+		if (matches && current != null)
+		{
+			// unchanged revalidation of a qualified sample: stays current, not re-announced
+			return;
+		}
 		if (matches)
 		{
-			streak++;
+			// capped: an unchanged degraded sample is not re-announced every tick either
+			streak = Math.min(streak + 1, EMPTY_STREAK);
 			streakLastTick = tickIndex;
 		}
 		else
@@ -171,6 +205,9 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 			streakScope = scope;
 			streakWitness = ev.witness;
 			streakContents = ev.contents;
+			streakRawBank = ev.rawBank;
+			streakInventory = ev.inventory;
+			streakEquipment = ev.equipment;
 			reason = why;
 		}
 
@@ -187,7 +224,7 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 		int required = populated ? POPULATED_STREAK : EMPTY_STREAK;
 		if (streak >= required)
 		{
-			BankEvidence e = new BankEvidence(scope, streakFirstTick, streakLastTick, ev.contents, ev.inventory, ev.equipment,
+			BankEvidence e = new BankEvidence(++generationCounter, scope, streakFirstTick, streakLastTick, ev.contents, ev.inventory, ev.equipment,
 				ev.witness);
 			if (history.set(scope, e))
 			{
@@ -212,6 +249,7 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 	{
 		hasLastTick = false;
 		failedAttempts = 0;
+		retryWait = false;
 		invalidate(BankReason.NONE);
 	}
 
@@ -241,12 +279,20 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 				// any scope or authority change revokes at once; history stays with its login
 				invalidate(BankReason.SCOPE_CHANGED);
 			}
+			else
+			{
+				// even with nothing current, the published history must follow the lifecycle
+				// (masked while not publishable, gone after retirement or an account change)
+				publish();
+			}
 		}
 	}
 
-	private void fail(BankReason why)
+	private void fail(BankReason why, long tickIndex)
 	{
 		failedAttempts++;
+		retryWait = true;
+		nextAttemptTick = tickIndex + RETRY_TICKS;
 		invalidate(why);
 	}
 
@@ -259,6 +305,9 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 		streakScope = null;
 		streakWitness = null;
 		streakContents = null;
+		streakRawBank = null;
+		streakInventory = null;
+		streakEquipment = null;
 		reason = why;
 		publish();
 	}
@@ -349,9 +398,9 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 	}
 
 	@Override
-	public boolean isCurrent(BankEvidence evidence)
+	public synchronized boolean isCurrent(BankEvidence evidence)
 	{
-		return evidence != null && lifecycle.isCurrent(evidence.scope());
+		return evidence != null && evidence == current && lifecycle.isCurrent(evidence.scope());
 	}
 
 	@Override

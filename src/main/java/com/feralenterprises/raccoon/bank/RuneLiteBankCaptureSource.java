@@ -1,6 +1,8 @@
 package com.feralenterprises.raccoon.bank;
 
 import com.feralenterprises.raccoon.core.account.AccountScope;
+import com.feralenterprises.raccoon.core.account.ClientPhase;
+import com.feralenterprises.raccoon.core.account.IdentityReading;
 import com.feralenterprises.raccoon.core.bank.BankCaptureSource;
 import com.feralenterprises.raccoon.core.bank.BankFrame;
 import com.feralenterprises.raccoon.core.bank.BankVisibility;
@@ -36,21 +38,22 @@ final class RuneLiteBankCaptureSource implements BankCaptureSource
 	@Override
 	public BankVisibility visibility()
 	{
-		if (visible(InterfaceID.BankpinKeypad.UNIVERSE))
-		{
-			return BankVisibility.PIN;
-		}
-		return visible(InterfaceID.Bankmain.UNIVERSE) ? BankVisibility.OPEN : BankVisibility.CLOSED;
+		return visibilityOf(visible(InterfaceID.BankpinKeypad.UNIVERSE), visible(InterfaceID.Bankmain.UNIVERSE),
+			visible(InterfaceID.Bankmain.ITEMS));
 	}
 
-	/** Reproduction stub: the item widget is not yet considered. */
+	/** Bank open requires the root and its item widget visible, and no PIN (donor rule). */
 	static BankVisibility visibilityOf(boolean pinVisible, boolean rootVisible, boolean itemsVisible)
 	{
 		if (pinVisible)
 		{
 			return BankVisibility.PIN;
 		}
-		return rootVisible ? BankVisibility.OPEN : BankVisibility.CLOSED;
+		if (!rootVisible)
+		{
+			return BankVisibility.CLOSED;
+		}
+		return itemsVisible ? BankVisibility.OPEN : BankVisibility.ITEMS_NOT_READY;
 	}
 
 	private boolean visible(int componentId)
@@ -62,7 +65,41 @@ final class RuneLiteBankCaptureSource implements BankCaptureSource
 	@Override
 	public BankFrame capture(AccountScope scope, long tickIndex)
 	{
-		return new BankFrame(scope, tickIndex, read(InventoryID.BANK), read(InventoryID.INV), read(InventoryID.WORN), witness());
+		// identity and phase are read before and after the container reads (donor rule); the tracker
+		// checks both against the central lifecycle
+		ClientPhase phaseBefore = phase();
+		IdentityReading before = identity();
+		ContainerRead bank = read(InventoryID.BANK);
+		ContainerRead inventory = read(InventoryID.INV);
+		ContainerRead equipment = read(InventoryID.WORN);
+		TabWitness witness = witness();
+		ClientPhase phaseAfter = phase();
+		IdentityReading after = identity();
+		return new BankFrame(scope, tickIndex, phaseBefore, before, bank, inventory, equipment, witness, phaseAfter, after);
+	}
+
+	private ClientPhase phase()
+	{
+		try
+		{
+			return ClientPhase.fromName(client.getGameState().name());
+		}
+		catch (RuntimeException e)
+		{
+			return ClientPhase.UNKNOWN;
+		}
+	}
+
+	private IdentityReading identity()
+	{
+		try
+		{
+			return IdentityReading.of(client.getAccountHash());
+		}
+		catch (RuntimeException e)
+		{
+			return IdentityReading.failed();
+		}
 	}
 
 	private ContainerRead read(int containerId)
@@ -105,7 +142,7 @@ final class RuneLiteBankCaptureSource implements BankCaptureSource
 			{
 				return ItemKind.UNREADABLE;
 			}
-			return ItemClassifier.classify(itemId, def.getPlaceholderTemplateId(), def.getNote());
+			return ItemClassifier.classify(itemId, def.getId(), def.getPlaceholderTemplateId(), def.getNote());
 		}
 		catch (RuntimeException e)
 		{

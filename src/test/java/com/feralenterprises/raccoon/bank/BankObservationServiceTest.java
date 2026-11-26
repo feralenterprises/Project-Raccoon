@@ -4,6 +4,8 @@ import static org.junit.Assert.assertEquals;
 
 import com.feralenterprises.raccoon.account.AccountLifecycleService;
 import com.feralenterprises.raccoon.core.account.AccountScope;
+import com.feralenterprises.raccoon.core.account.ClientPhase;
+import com.feralenterprises.raccoon.core.account.IdentityReading;
 import com.feralenterprises.raccoon.core.bank.BankCaptureSource;
 import com.feralenterprises.raccoon.core.bank.BankFrame;
 import com.feralenterprises.raccoon.core.bank.BankStatus;
@@ -42,8 +44,9 @@ public class BankObservationServiceTest
 			@Override
 			public BankFrame capture(AccountScope scope, long tickIndex)
 			{
-				return new BankFrame(scope, tickIndex, ContainerRead.present(Arrays.asList(RawSlot.item(995, 3))),
-					ContainerRead.missing(), ContainerRead.missing(), TabWitness.of(1, 0, 0, 0, 0, 0, 0, 0, 0));
+				return new BankFrame(scope, tickIndex, ClientPhase.LOGGED_IN, IdentityReading.of(77L),
+					ContainerRead.present(Arrays.asList(RawSlot.item(995, 3))), ContainerRead.missing(), ContainerRead.missing(),
+					TabWitness.of(1, 0, 0, 0, 0, 0, 0, 0, 0), ClientPhase.LOGGED_IN, IdentityReading.of(77L));
 			}
 		};
 		bank = new BankObservationService(accounts, source, () -> tick);
