@@ -355,6 +355,15 @@ public class FoundationVerifier
 			return v;
 		}
 
+		// pin shape
+		for (String k : new TreeSet<>(pins.stringPropertyNames()))
+		{
+			if (k.endsWith(".commit") && !pins.getProperty(k).matches("[0-9a-f]{40}"))
+			{
+				v.add("pins: " + k + " must be a full 40-hex commit SHA");
+			}
+		}
+
 		// wrapper pins
 		Properties wp = new Properties();
 		try (InputStream in = Files.newInputStream(root.resolve("gradle/wrapper/gradle-wrapper.properties")))
@@ -992,6 +1001,7 @@ public class FoundationVerifier
 		sourceCase(root, tmp, "space indentation rejected", "build.gradle", s -> s.replace("\tid 'java'", "    id 'java'"), "indent with tabs");
 		sourceCase(root, tmp, "build=gradle rejected", "runelite-plugin.properties", s -> s.replace("build=standard", "build=gradle"), "build");
 		sourceCase(root, tmp, "unpinned action rejected", ".github/workflows/foundation.yml", s -> s.replaceFirst("uses: actions/checkout@[0-9a-f]{40}", "uses: actions/checkout@v4"), "not pinned");
+		sourceCase(root, tmp, "short commit pin rejected", "release/pins.properties", s -> s.replaceFirst("template.commit=([0-9a-f]{39})[0-9a-f]", "template.commit=$1"), "full 40-hex commit");
 		sourceCase(root, tmp, "nested project rejected", "sub/settings.gradle", s -> "rootProject.name = 'x'\n", "nested Gradle project");
 		sourceCase(root, tmp, "service descriptor source rejected", "src/main/resources/META-INF/services/net.runelite.client.plugins.Plugin", s -> "x\n", "service descriptor");
 		sourceCase(root, tmp, "unapproved icon rejected", "icon.png", s -> "x", "unapproved asset");
