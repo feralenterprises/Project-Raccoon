@@ -140,7 +140,7 @@ public class FoundationVerifier
 		Pattern.compile("xox[abprs]-[A-Za-z0-9-]{10,}"));
 	static final List<String> REQUIRED_RECORDS = Arrays.asList(
 		"docs/architecture.md", "docs/feature-parity.md", "docs/migration-provenance.md",
-		"docs/release-evidence.md", "docs/governance.md", "docs/engineering-requirements.md", "docs/account-lifecycle.md", "docs/ui-integration.md", "release/pins.properties", "LICENSE");
+		"docs/release-evidence.md", "docs/governance.md", "docs/engineering-requirements.md", "docs/account-lifecycle.md", "docs/ui-integration.md", "docs/bank-observation.md", "release/pins.properties", "LICENSE");
 
 	// ---------------------------------------------------------------- main
 
