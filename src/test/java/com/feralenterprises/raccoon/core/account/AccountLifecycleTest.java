@@ -271,7 +271,8 @@ public class AccountLifecycleTest
 		h.loggedInAs(A);
 		AccountScope before = h.scope();
 		kcTotals.set(before, 9);
-		h.phase(ClientPhase.CONNECTION_LOST).advanceSeconds(10).phase(ClientPhase.LOGGING_IN)
+		// LOGGING_IN is not part of verified continuity (audit finding 3; see AuditRegressionTest)
+		h.phase(ClientPhase.CONNECTION_LOST).advanceSeconds(10)
 			.phase(ClientPhase.LOADING).phase(ClientPhase.LOGGED_IN).tick(A);
 		assertTrue(h.scope().sameLogin(before));
 		assertEquals(Optional.of(9), kcTotals.get());

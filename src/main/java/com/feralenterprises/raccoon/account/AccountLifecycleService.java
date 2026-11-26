@@ -29,7 +29,6 @@ public class AccountLifecycleService
 	private final LongSupplier accountHash;
 	private final Supplier<Set<String>> worldTypeNames;
 	private final LongSupplier nanoTime;
-	private boolean phaseKnown;
 
 	@Inject
 	AccountLifecycleService(Client client)
@@ -59,7 +58,6 @@ public class AccountLifecycleService
 
 	public void start()
 	{
-		phaseKnown = false;
 		lifecycle.start(nanoTime.getAsLong());
 	}
 
@@ -70,16 +68,20 @@ public class AccountLifecycleService
 
 	public void onGameState(String name)
 	{
-		phaseKnown = true;
 		lifecycle.onClientPhase(ClientPhase.fromName(name), nanoTime.getAsLong());
 	}
 
+	/**
+	 * Each tick first reconciles the lifecycle's phase with the client's actual game state (an
+	 * unreadable state counts as UNKNOWN), so a missed or stale event can never leave the
+	 * lifecycle believing it is LOGGED_IN; then the identity and world are read fresh.
+	 */
 	public void onGameTick()
 	{
-		if (!phaseKnown)
+		ClientPhase actual = ClientPhase.fromName(readGameState());
+		if (actual != lifecycle.phase())
 		{
-			// enabled mid-session: learn the phase on the client thread, then read identity fresh
-			onGameState(readGameState());
+			lifecycle.onClientPhase(actual, nanoTime.getAsLong());
 		}
 		lifecycle.onGameTick(readIdentity(), readWorld(), nanoTime.getAsLong());
 	}

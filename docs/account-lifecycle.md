@@ -24,9 +24,16 @@ restated here in implementation terms.
 | State | Meaning | Publishes? |
 |---|---|---|
 | `UNAUTHENTICATED` | Started; no fresh verified identity yet. | No |
-| `ACTIVE` | Fresh verified identity on a supported world. | **Yes (only state that may)** |
+| `ACTIVE` | Verified identity on a supported world. | **Only while identity is fresh** |
 | `SUSPENDED_CONTINUITY` | Explicitly witnessed `HOPPING` or `CONNECTION_LOST`. Data masked, callbacks fenced, login held privately. | No |
 | `RETIRED` | Login ended; its data cleared. Reason in `lastRetireReason()`. | No |
+
+**Freshness.** `ACTIVE` publishes only while its identity is fresh. Any client phase event
+(`LOADING`, a repeated `LOGGED_IN`) makes it stale: the snapshot reports
+`isAwaitingFreshIdentity()`, reads are masked, writes and fenced callbacks are rejected. Only a
+`LOGGED_IN` game tick that verifies the same hash on a supported world makes it fresh again, in the
+same login and epoch (a region change is not a hop). Every tick, in any phase, is checked: an
+unknown identity, a read failure, a different hash or an unsupported world retires the login.
 
 ## Transitions
 
@@ -37,24 +44,42 @@ restated here in implementation terms.
 | `UNAUTHENTICATED`/`RETIRED` | tick in `LOGGED_IN`, verified hash, supported world | new login, new epoch → `ACTIVE` |
 | `UNAUTHENTICATED`/`RETIRED` | unknown hash, read failure, or unsupported world | stay (no view) |
 | `ACTIVE` | `HOPPING` / `CONNECTION_LOST` | `SUSPENDED_CONTINUITY`; clock starts |
-| `ACTIVE` | `LOADING` | no change (LOADING alone is not a hop) |
+| `ACTIVE` | `LOADING` or a repeated `LOGGED_IN` | stays `ACTIVE`, **not publishable** until a fresh `LOGGED_IN` tick (LOADING never establishes hop continuity) |
 | `ACTIVE` | `LOGIN_SCREEN` / authenticator | `RETIRED (LOGOUT / AUTHENTICATOR)` |
 | `ACTIVE` | `LOGGING_IN`, `STARTING`, unknown phase | `RETIRED (UNRECOGNIZED_CONTINUITY)` |
-| `ACTIVE` | tick: unknown hash or read failure | `RETIRED (IDENTITY_LOST)` (no witnessed transition) |
-| `ACTIVE` | tick: different hash | `RETIRED (DIFFERENT_ACCOUNT)`, then new login for the new hash |
-| `ACTIVE` | tick: unsupported world | `RETIRED (UNSUPPORTED_WORLD)` |
-| `SUSPENDED` | `HOPPING`, `CONNECTION_LOST`, `LOADING`, `LOGGING_IN` | stay; limits keep running |
-| `SUSPENDED` | tick: unknown hash / read failure | authentication pending (counts toward tick limit) |
+| `ACTIVE` | tick in any phase: unknown hash or read failure | `RETIRED (IDENTITY_LOST)` (no witnessed transition) |
+| `ACTIVE` | tick in any phase: different hash | `RETIRED (DIFFERENT_ACCOUNT)`; new login only on a `LOGGED_IN` tick |
+| `ACTIVE` | tick in any phase: unsupported world | `RETIRED (UNSUPPORTED_WORLD)` |
+| `ACTIVE` | `LOGGED_IN` tick, same hash, supported world | fresh again (same login, same epoch) |
+| `SUSPENDED` | `HOPPING`, `CONNECTION_LOST`, `LOADING`, `LOGGED_IN` | stay; limits keep running |
+| `SUSPENDED` | `LOGGING_IN` | `RETIRED (CONTINUITY_INTERRUPTED)` (see evidence below) |
+| `SUSPENDED` | tick in any phase: unsupported world (whatever the identity) | `RETIRED (UNSUPPORTED_WORLD)`; a later supported tick starts a **new** login |
+| `SUSPENDED` | `LOGGED_IN` tick: unknown hash / read failure | authentication pending (counts toward tick limit) |
 | `SUSPENDED` | tick: same hash, supported world, within limits | restore same login token, **new epoch** → `ACTIVE` |
 | `SUSPENDED` | tick: different hash | `RETIRED (DIFFERENT_ACCOUNT)`, then new login if world supported |
-| `SUSPENDED` | tick: unsupported world | `RETIRED (UNSUPPORTED_WORLD)` |
 | `SUSPENDED` | `LOGIN_SCREEN` / authenticator / other phase | `RETIRED` |
 | `SUSPENDED` | 120 s since suspension, or 20 ticks awaiting authentication | `RETIRED (CONTINUITY_TIMEOUT / AUTHENTICATION_TIMEOUT)` |
 
-Limits (`ContinuityLimits`): 120 monotonic seconds from suspension; at most 20 game ticks
-awaiting authentication; whichever comes first. They are constants, counted across repeated hops
-within one suspension, and never extended. Expiry is checked before any restore and on every
-client tick while suspended.
+Limits (`ContinuityLimits`): 120 monotonic seconds from suspension; at most 20 `LOGGED_IN` game
+ticks awaiting authentication; whichever comes first. They are constants, counted across repeated
+hops within one suspension, and never extended. Boundaries: restore is allowed at 119.999 s and
+on the 20th tick; at 120 s, or when the 20th tick is still unverified, the login retires. Expiry
+is checked before any restore and on every client tick while suspended. A clock reading earlier
+than the suspension time retires (`CONTINUITY_TIMEOUT`): the limit cannot be proven unexpired.
+
+### `LOGGING_IN` evidence (pinned RuneLite 1.13.8, `runelite-parent-1.13.8` = `8397ec71`)
+
+- `runelite-api/.../GameState.java`: `LOGGING_IN(20)` is documented only as "There is a player
+  logging in"; nothing describes it as part of a reconnect.
+- `runelite-client/.../xptracker/XpTrackerPlugin.java`: treats `LOGGING_IN` like `HOPPING` as a
+  login boundary and re-checks the account hash at the following `LOGGED_IN`; it also notes
+  that `LOGGED_IN` fires on every region change.
+- `runelite-client/.../grandexchange/GrandExchangePlugin.java`: the client clears trade state during
+  `LOGIN_SCREEN`/`HOPPING`/`LOGGING_IN`.
+
+The pinned source gives no evidence that `LOGGING_IN` preserves account continuity, so it retires
+a suspended login. Cost: a reconnect that passes through `LOGGING_IN` starts a new login with
+cleared totals (data is never shown wrongly). Native confirmation belongs to FR-006 (R3).
 
 ## Guarantees
 
@@ -70,11 +95,23 @@ client tick while suspended.
   unknown future types, yields no observations.
 - Diagnostics (`toString` of every lifecycle type) never contain the account hash; tested.
 
-## Threading
+## Threading and delivery
 
-Inputs arrive on the client thread and are synchronized, so a plugin stop racing a tick stays
-consistent. Snapshots are immutable and safe on any thread. Listeners are called after the lock is
-released, on the driving thread, in publication order. Slots are for client-thread use.
+- Inputs arrive on the client thread and are synchronized, so a plugin stop racing a tick stays
+  consistent. Snapshots are immutable and safe on any thread.
+- Delivery is serialized: one thread delivers at a time, every listener sees strictly increasing
+  revisions, never concurrently. An input made from inside a listener is delivered after the
+  current snapshot reached every listener. A cancelled subscription receives nothing further,
+  even within the same delivery round. A new subscriber starts from the latest snapshot.
+- Listeners run without the state lock but under the delivery lock: they must not block on
+  other threads that drive the lifecycle.
+- Slot operations (`get`, `get(scope)`, `set`) are each atomic with respect to transitions.
+- `fenced(scope, work)` checks the scope when the work starts; work that also writes must use
+  `set(scope, …)`, which re-checks atomically. Work started before a transition is not interrupted.
+- Subscriptions survive `stop()`/`start()`; they see the `RETIRED` and `UNAUTHENTICATED` snapshots.
+- The adapter reconciles the lifecycle phase with the client's actual game state on every tick
+  (an unreadable state counts as `UNKNOWN`) before reading identity, so a missed event cannot
+  leave a stale `LOGGED_IN`.
 
 ## Acceptance cases → tests
 
@@ -86,6 +123,9 @@ released, on the driving thread, in publication order. Slots are for client-thre
 | A04 | `a04_*` (15): immediate/delayed identity, read failure, repeated unknown, 120 s, no extension, tick limit, whichever first, logout/authenticator/disable, unsupported world, missing continuity, no publication or replay, zero-delta baseline |
 | A05 | `a05_*` (4): after stop, account switch, epoch change, stop+restart |
 | A06 | `a06_*` (3) + `worldPolicy*` (2), `unreadableWorldIsUnsupported` |
+| Audit 2026-11-26 | `AuditRegressionTest` (10), `finding4_*` adapter (2): reproduced each finding before repair (CI failed at `1792d0d6`) |
+| Boundaries | `LifecycleBoundaryTest` (11): region change, masking, limits at 119.999 s / 120 s / 20 ticks, clock backwards, enable during LOADING |
+| Concurrency | `LifecycleConcurrencyTest` (real threads), `ConsumerScopeGateTest` (3) |
 
 ## Open policy inputs
 

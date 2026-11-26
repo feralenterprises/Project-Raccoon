@@ -9,12 +9,13 @@ FR-002 contains no UI.
 | Type | Use |
 |---|---|
 | `AccountLifecycleView` | Read side. `snapshot()`, `subscribe(listener)`, `isCurrent(scope)`, `fenced(scope, work)`. |
-| `AccountSnapshot` | Immutable; safe on any thread. `state()`, `isPublishable()`, `scope()`, `membership()`, `lastRetireReason()`, `revision()`. |
+| `AccountSnapshot` | Immutable; safe on any thread. `state()`, `isPublishable()`, `isAwaitingFreshIdentity()`, `scope()`, `membership()`, `lastRetireReason()`, `revision()`. |
 | `AccountLifecycleListener` | Called with every snapshot, in order. Gets the current snapshot immediately on subscribe. |
 | `Subscription` | Returned by `subscribe`; `cancel()` / `close()`. |
 | `AccountScope` | Opaque (account id, login token, epoch). Key any per-account cache by it. |
-| `AccountDataRegistry` / `AccountSlot<T>` | Central account data: `loginSlot`, `epochSlot`; `get()` masked unless ACTIVE, `set(scope, value)` only from the current scope. |
+| `AccountDataRegistry` / `AccountSlot<T>` | Central account data: `loginSlot`, `epochSlot`; `get()` masked unless publishable, `get(scope)` only for the scope you hold, `set(scope, value)` only from the current scope. Each call is atomic. |
 | `EpochBaseline` | Counter deltas; the first value in an epoch is 0. |
+| `ConsumerScopeGate` | Confine one per consumer thread (e.g. the EDT): `onSnapshot` (ignores older revisions), `accepts(scope)` before applying any value. |
 
 In the plugin, obtain them by injecting `com.feralenterprises.raccoon.account.AccountLifecycleService`
 and calling `view()` (read side) or `data()` (slot registry). Only that service drives
@@ -23,23 +24,32 @@ transitions.
 ## Rules for every consumer (panels, overlays, simulator views)
 
 1. **Render account data only when `snapshot.isPublishable()`.** On any other snapshot, show the
-   neutral state (signed out, waiting, reconnecting) and drop every account-derived value you hold.
+   neutral state and drop every account-derived value you hold. This includes `ACTIVE` snapshots
+   with `isAwaitingFreshIdentity()` (for example during `LOADING`); they are not publishable.
 2. **Never keep data across scopes.** When `snapshot.scope()` changes (different login token or
    epoch), discard caches built for the previous scope. Use `AccountScope.sameLogin` only to decide
    presentation (for example "reconnected"), not to reuse epoch data.
 3. **Fence asynchronous work.** Wrap anything that completes later (images, timers, background
    computation) with `view.fenced(scope, work)`, or check `isCurrent(scope)` before applying it.
-4. **Thread hand-off is the consumer's job.** Listeners run on the client thread. Copy the snapshot
-   and marshal to the Swing EDT yourself; do not block or do heavy work in the listener.
-5. **Do not read slots from the EDT.** Slots are client-thread data. Pass values to the UI as
-   immutable copies, tagged with the scope they were read under.
+4. **Thread hand-off is the consumer's job; use `ConsumerScopeGate`.** Listeners run on the
+   driving thread under the delivery lock. In the listener, only enqueue the snapshot to your
+   thread (e.g. `SwingUtilities.invokeLater`); never block, wait on another thread, or do heavy
+   work there. On your thread call `gate.onSnapshot(s)`; if it returns true, re-render (clearing
+   everything when not publishable).
+5. **Tag and gate every value.** Read slot values with `get(scope)` for the scope you hold, pass
+   immutable copies tagged with that scope, and apply them on your thread only if
+   `gate.accepts(scope)`. Because hand-offs to one thread are ordered, a value produced before a
+   retirement is either rejected or cleared by the retirement snapshot that follows it.
 6. **Never display or log account hashes.** None of these types expose one. `accountId()` is a
    per-run ordinal, not an identity to show or persist.
 7. **Treat `Membership.UNKNOWN` as unknown,** never as members.
 8. **No persistence, no transitions.** Consumers must not store account state or call lifecycle
    inputs; only the adapter does.
-9. **Make no assumptions about the retirement reason** other than for wording; all non-ACTIVE
-   states mean "show no account data".
+9. **Make no assumptions about the retirement reason** other than for wording; every
+   non-publishable snapshot means "show no account data".
+10. **Subscriptions:** a new subscriber immediately receives the latest snapshot; revisions are
+    strictly increasing per subscriber; nothing arrives after `cancel()`. Subscriptions survive
+    plugin stop/start, so cancel them when the consumer is disposed.
 
 ## Simulator
 
@@ -51,6 +61,13 @@ The simulator reuses the same interfaces (SR-4):
   to exercise the adapter path without a RuneLite client.
 
 Production panels then consume the simulator's `AccountLifecycleView` exactly as in the client.
+
+## Changes in the 2026-11-26 audit repair
+
+Consumers must now also: treat `ACTIVE` + `isAwaitingFreshIdentity()` as not publishable (rule 1);
+use `get(scope)` and `ConsumerScopeGate` for thread hand-off (rules 4–5); expect a hop or reconnect
+that passes through `LOGGING_IN` to arrive as a new login (new `loginToken`, cleared totals).
+`AccountSlot` gained `get(AccountScope)`; no method was removed.
 
 ## Requests to the UI workstream
 

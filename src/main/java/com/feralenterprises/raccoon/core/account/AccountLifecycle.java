@@ -1,29 +1,36 @@
 package com.feralenterprises.raccoon.core.account;
 
-import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * The single owner of account identity, login token, observation epoch and account-scoped data
  * (SR-1). Pure Java: driven by an adapter (RuneLite) or by the simulator through the same inputs.
  *
+ * <p>Publication rule: only {@code ACTIVE} with a <em>fresh</em> verified identity publishes.
+ * Freshness is lost on every client phase change and regained only by a {@code LOGGED_IN} game
+ * tick that verifies the same account hash on a supported world.
+ *
  * <p>Inputs ({@link #start}, {@link #stop}, {@link #onClientPhase}, {@link #onGameTick},
- * {@link #poll}) are expected on one thread (the client thread); they are synchronized so a stop
- * racing a tick stays consistent. Snapshots are immutable and may be read from any thread.
- * Listeners are notified after the lock is released, in publication order.
+ * {@link #poll}) are expected on the client thread; they are synchronized so a stop racing a tick
+ * stays consistent. Snapshots are immutable and may be read from any thread. Listener delivery is
+ * serialized: every listener sees snapshots in strictly increasing revision order, never
+ * concurrently, and never after its subscription is cancelled. Inputs made from inside a listener
+ * are delivered after the current snapshot has reached every listener.
  *
  * <p>Account hashes are held privately to compare identities and are never exposed.
  */
 public final class AccountLifecycle implements AccountLifecycleView, AccountDataRegistry
 {
 	private final Object lock = new Object();
-	private final List<AccountLifecycleListener> listeners = new CopyOnWriteArrayList<>();
+	private final Object deliveryLock = new Object();
+	private final CopyOnWriteArrayList<Registration> registrations = new CopyOnWriteArrayList<>();
 	private final Map<String, Slot<?>> loginSlots = new LinkedHashMap<>();
 	private final Map<String, Slot<?>> epochSlots = new LinkedHashMap<>();
 
@@ -31,12 +38,13 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 	private final Map<Long, Integer> accountIds = new HashMap<>();
 
 	private volatile AccountSnapshot snapshot =
-		new AccountSnapshot(0, AccountState.UNAUTHENTICATED, null, Membership.UNKNOWN, RetireReason.NONE);
+		new AccountSnapshot(0, AccountState.UNAUTHENTICATED, false, null, Membership.UNKNOWN, RetireReason.NONE);
 
 	// guarded by lock
 	private boolean running;
 	private AccountState state = AccountState.UNAUTHENTICATED;
 	private ClientPhase phase = ClientPhase.UNKNOWN;
+	private boolean identityFresh;
 	private long sessionHash;
 	private int sessionAccountId;
 	private long sessionLoginToken;
@@ -44,12 +52,14 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 	private Membership membership = Membership.UNKNOWN;
 	private RetireReason lastRetireReason = RetireReason.NONE;
 	private long suspendedAtNanos;
-	private boolean awaitingAuthentication;
 	private int authenticationTicks;
 	private long revision;
 	private long epochCounter;
 	private long loginCounter;
-	private final List<AccountSnapshot> pending = new ArrayList<>();
+	private final Queue<AccountSnapshot> pending = new ArrayDeque<>();
+
+	// guarded by deliveryLock
+	private boolean delivering;
 
 	// ------------------------------------------------------------------ inputs
 
@@ -65,7 +75,7 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 			lastRetireReason = RetireReason.NONE;
 			publish();
 		}
-		flush();
+		deliver();
 	}
 
 	/** Plugin disabled: retire, clear everything, fence all outstanding work. */
@@ -81,7 +91,7 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 			running = false;
 			accountIds.clear();
 		}
-		flush();
+		deliver();
 	}
 
 	public void onClientPhase(ClientPhase newPhase, long nowNanos)
@@ -104,16 +114,17 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 					onPhaseWhileSuspended(newPhase);
 					break;
 				default:
-					// UNAUTHENTICATED / RETIRED: activation needs a fresh identity on a game tick
+					// UNAUTHENTICATED / RETIRED: activation needs a fresh identity on a LOGGED_IN tick
 					break;
 			}
 		}
-		flush();
+		deliver();
 	}
 
 	/**
-	 * One game tick while logged in, with a fresh identity read and the current world policy.
-	 * Ticks outside LOGGED_IN are ignored.
+	 * One game tick, with a fresh identity read and the current world policy. Every tick is
+	 * checked against the current login whatever the phase; only ticks in {@code LOGGED_IN} can
+	 * activate, restore, or re-establish freshness.
 	 */
 	public void onGameTick(IdentityReading identity, WorldContext world, long nowNanos)
 	{
@@ -126,10 +137,6 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 				return;
 			}
 			expireIfDue(nowNanos);
-			if (phase != ClientPhase.LOGGED_IN)
-			{
-				return;
-			}
 			switch (state)
 			{
 				case ACTIVE:
@@ -139,14 +146,14 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 					tickWhileSuspended(identity, world);
 					break;
 				default:
-					if (identity.isVerified() && world.isSupported())
+					if (phase == ClientPhase.LOGGED_IN && identity.isVerified() && world.isSupported())
 					{
 						activateNewLogin(identity, world);
 					}
 					break;
 			}
 		}
-		flush();
+		deliver();
 	}
 
 	/** Lets time-based limits expire promptly without other events. */
@@ -159,7 +166,7 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 				expireIfDue(nowNanos);
 			}
 		}
-		flush();
+		deliver();
 	}
 
 	// ------------------------------------------------------------------ transitions
@@ -170,7 +177,9 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 		{
 			case LOGGED_IN:
 			case LOADING:
-				// LOADING alone is not a hop; identity keeps being verified every tick
+				// Same login and epoch, but identity must be re-verified on a LOGGED_IN tick before
+				// anything is published again. LOADING never establishes hop continuity.
+				loseFreshness();
 				break;
 			case HOPPING:
 			case CONNECTION_LOST:
@@ -183,6 +192,7 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 				retire(RetireReason.AUTHENTICATOR);
 				break;
 			default:
+				// LOGGING_IN without a witnessed hop/connection loss, STARTING, UNKNOWN
 				retire(RetireReason.UNRECOGNIZED_CONTINUITY);
 				break;
 		}
@@ -195,11 +205,13 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 			case HOPPING:
 			case CONNECTION_LOST:
 			case LOADING:
-			case LOGGING_IN:
+			case LOGGED_IN:
 				// still inside the witnessed transition; limits keep running, never extended
 				break;
-			case LOGGED_IN:
-				awaitingAuthentication = true;
+			case LOGGING_IN:
+				// RuneLite 1.13.8: "a player logging in"; the client resets session state here
+				// (see docs/account-lifecycle.md). Continuity cannot be established: retire.
+				retire(RetireReason.CONTINUITY_INTERRUPTED);
 				break;
 			case LOGIN_SCREEN:
 				retire(RetireReason.LOGOUT);
@@ -230,11 +242,19 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 		{
 			// missed logout: never let the prior account's view survive
 			retire(RetireReason.DIFFERENT_ACCOUNT);
-			activateNewLogin(identity, world);
+			if (phase == ClientPhase.LOGGED_IN)
+			{
+				activateNewLogin(identity, world);
+			}
 			return;
 		}
-		if (membership != world.membership())
+		if (phase != ClientPhase.LOGGED_IN)
 		{
+			return;
+		}
+		if (!identityFresh || membership != world.membership())
+		{
+			identityFresh = true;
 			membership = world.membership();
 			publish();
 		}
@@ -242,7 +262,16 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 
 	private void tickWhileSuspended(IdentityReading identity, WorldContext world)
 	{
-		awaitingAuthentication = true;
+		if (!world.isSupported())
+		{
+			// whatever the identity reading: never keep or later restore this login
+			retire(RetireReason.UNSUPPORTED_WORLD);
+			return;
+		}
+		if (phase != ClientPhase.LOGGED_IN)
+		{
+			return;
+		}
 		authenticationTicks++;
 		if (!identity.isVerified())
 		{
@@ -255,24 +284,22 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 		if (identity.hash() != sessionHash)
 		{
 			retire(RetireReason.DIFFERENT_ACCOUNT);
-			if (world.isSupported())
-			{
-				activateNewLogin(identity, world);
-			}
+			activateNewLogin(identity, world);
 			return;
 		}
-		if (!world.isSupported())
-		{
-			retire(RetireReason.UNSUPPORTED_WORLD);
-			return;
-		}
-		restoreLogin(world);
+		// same hash, uninterrupted suspension, supported world, within limits: keep the login
+		openEpoch(world);
 	}
 
 	private void expireIfDue(long nowNanos)
 	{
-		if (state == AccountState.SUSPENDED_CONTINUITY
-			&& nowNanos - suspendedAtNanos >= ContinuityLimits.SUSPENSION_LIMIT_NANOS)
+		if (state != AccountState.SUSPENDED_CONTINUITY)
+		{
+			return;
+		}
+		long elapsed = nowNanos - suspendedAtNanos;
+		// a clock that runs backwards cannot prove the limit has not passed
+		if (elapsed < 0 || elapsed >= ContinuityLimits.SUSPENSION_LIMIT_NANOS)
 		{
 			retire(RetireReason.CONTINUITY_TIMEOUT);
 		}
@@ -293,31 +320,35 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 		openEpoch(world);
 	}
 
-	private void restoreLogin(WorldContext world)
-	{
-		// same hash, uninterrupted suspension, supported world: keep the login, new epoch
-		openEpoch(world);
-	}
-
 	private void openEpoch(WorldContext world)
 	{
 		clear(epochSlots);
 		currentScope = new AccountScope(sessionAccountId, sessionLoginToken, ++epochCounter);
 		membership = world.membership();
 		state = AccountState.ACTIVE;
-		awaitingAuthentication = false;
+		identityFresh = true;
 		authenticationTicks = 0;
 		publish();
+	}
+
+	private void loseFreshness()
+	{
+		if (identityFresh)
+		{
+			identityFresh = false;
+			membership = Membership.UNKNOWN;
+			publish();
+		}
 	}
 
 	private void suspend(long nowNanos)
 	{
 		currentScope = null;
+		identityFresh = false;
 		clear(epochSlots);
 		membership = Membership.UNKNOWN;
 		state = AccountState.SUSPENDED_CONTINUITY;
 		suspendedAtNanos = nowNanos;
-		awaitingAuthentication = false;
 		authenticationTicks = 0;
 		publish();
 	}
@@ -332,12 +363,12 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 
 	private void clearSession()
 	{
+		identityFresh = false;
 		sessionHash = 0;
 		sessionAccountId = 0;
 		sessionLoginToken = 0;
 		currentScope = null;
 		membership = Membership.UNKNOWN;
-		awaitingAuthentication = false;
 		authenticationTicks = 0;
 		clear(loginSlots);
 		clear(epochSlots);
@@ -351,48 +382,103 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 		}
 	}
 
+	/** Caller holds {@code lock}. */
+	private boolean publishableLocked()
+	{
+		return running && state == AccountState.ACTIVE && identityFresh && currentScope != null;
+	}
+
 	// ------------------------------------------------------------------ publication
 
 	private void publish()
 	{
-		AccountSnapshot s = new AccountSnapshot(++revision, state, currentScope, membership, lastRetireReason);
+		AccountSnapshot s = new AccountSnapshot(++revision, state, identityFresh, currentScope, membership, lastRetireReason);
 		snapshot = s;
 		pending.add(s);
 	}
 
-	private void flush()
+	/**
+	 * Delivers queued snapshots. One deliverer at a time (other threads wait); a re-entrant call
+	 * from a listener returns at once and its snapshots are delivered by the outer loop, after the
+	 * current snapshot reached every listener.
+	 */
+	private void deliver()
 	{
-		List<AccountSnapshot> out;
-		synchronized (lock)
+		synchronized (deliveryLock)
 		{
-			if (pending.isEmpty())
+			if (delivering)
 			{
 				return;
 			}
-			out = new ArrayList<>(pending);
-			pending.clear();
-		}
-		RuntimeException first = null;
-		for (AccountSnapshot s : out)
-		{
-			for (AccountLifecycleListener l : listeners)
+			delivering = true;
+			RuntimeException first = null;
+			try
 			{
-				try
+				while (true)
 				{
-					l.onAccountSnapshot(s);
-				}
-				catch (RuntimeException e)
-				{
-					if (first == null)
+					AccountSnapshot s;
+					synchronized (lock)
 					{
-						first = e;
+						s = pending.poll();
+					}
+					if (s == null)
+					{
+						break;
+					}
+					for (Registration r : registrations)
+					{
+						try
+						{
+							r.offer(s);
+						}
+						catch (RuntimeException e)
+						{
+							if (first == null)
+							{
+								first = e;
+							}
+						}
 					}
 				}
 			}
+			finally
+			{
+				delivering = false;
+			}
+			if (first != null)
+			{
+				throw first;
+			}
 		}
-		if (first != null)
+	}
+
+	private final class Registration implements Subscription
+	{
+		private final AccountLifecycleListener listener;
+		private volatile boolean cancelled;
+		private long lastRevision = -1;
+
+		Registration(AccountLifecycleListener listener)
 		{
-			throw first;
+			this.listener = listener;
+		}
+
+		/** Called with deliveryLock held. */
+		void offer(AccountSnapshot s)
+		{
+			if (cancelled || s.revision() <= lastRevision)
+			{
+				return;
+			}
+			lastRevision = s.revision();
+			listener.onAccountSnapshot(s);
+		}
+
+		@Override
+		public void cancel()
+		{
+			cancelled = true;
+			registrations.remove(this);
 		}
 	}
 
@@ -408,9 +494,18 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 	public Subscription subscribe(AccountLifecycleListener listener)
 	{
 		Objects.requireNonNull(listener);
-		listeners.add(listener);
-		listener.onAccountSnapshot(snapshot);
-		return () -> listeners.remove(listener);
+		Registration r = new Registration(listener);
+		synchronized (deliveryLock)
+		{
+			registrations.add(r);
+			if (!delivering)
+			{
+				// deliver what is queued first, so the new listener starts from the latest state
+				deliver();
+			}
+			r.offer(snapshot);
+		}
+		return r;
 	}
 
 	@Override
@@ -418,7 +513,7 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 	{
 		synchronized (lock)
 		{
-			return running && state == AccountState.ACTIVE && scope != null && scope.equals(currentScope);
+			return scope != null && publishableLocked() && scope.equals(currentScope);
 		}
 	}
 
@@ -439,6 +534,15 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 	public AccountState state()
 	{
 		return snapshot.state();
+	}
+
+	/** Last client phase seen by the lifecycle (adapter use: phase reconciliation). */
+	public ClientPhase phase()
+	{
+		synchronized (lock)
+		{
+			return phase;
+		}
 	}
 
 	// ------------------------------------------------------------------ data
@@ -492,11 +596,16 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 		{
 			synchronized (lock)
 			{
-				if (!running || state != AccountState.ACTIVE || !present)
-				{
-					return Optional.empty();
-				}
-				return Optional.ofNullable(value);
+				return publishableLocked() && present ? Optional.ofNullable(value) : Optional.empty();
+			}
+		}
+
+		@Override
+		public Optional<T> get(AccountScope reader)
+		{
+			synchronized (lock)
+			{
+				return isCurrent(reader) && present ? Optional.ofNullable(value) : Optional.empty();
 			}
 		}
 
