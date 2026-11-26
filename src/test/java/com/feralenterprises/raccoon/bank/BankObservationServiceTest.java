@@ -89,4 +89,20 @@ public class BankObservationServiceTest
 		assertEquals(ItemKind.UNREADABLE, ItemClassifier.classify(995, 12345, -1));
 		assertEquals(ItemKind.UNREADABLE, ItemClassifier.classify(995, -1, 4));
 	}
+
+	@Test
+	public void itemWidgetMustBeVisible()
+	{
+		assertEquals(BankVisibility.ITEMS_NOT_READY, RuneLiteBankCaptureSource.visibilityOf(false, true, false));
+		assertEquals(BankVisibility.OPEN, RuneLiteBankCaptureSource.visibilityOf(false, true, true));
+		assertEquals(BankVisibility.PIN, RuneLiteBankCaptureSource.visibilityOf(true, true, true));
+		assertEquals(BankVisibility.CLOSED, RuneLiteBankCaptureSource.visibilityOf(false, false, true));
+	}
+
+	@Test
+	public void definitionIdentityMustMatch()
+	{
+		assertEquals(ItemKind.UNREADABLE, ItemClassifier.classify(995, 996, -1, -1));
+		assertEquals(ItemKind.ITEM, ItemClassifier.classify(995, 995, -1, -1));
+	}
 }

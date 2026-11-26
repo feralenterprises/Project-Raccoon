@@ -28,6 +28,8 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 	public static final int EMPTY_STREAK = 3;
 	/** Provisional: consecutive failed capture attempts allowed per open-bank session. */
 	public static final int MAX_FAILED_ATTEMPTS = 5;
+	/** Donor cadence: ticks to wait after a failed capture before the next attempt (not yet used). */
+	public static final int RETRY_TICKS = 3;
 
 	private final AccountLifecycleView lifecycle;
 	private final AccountSlot<BankEvidence> history;
@@ -344,5 +346,23 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 		}
 		// overflow was rejected at evaluation, so this sum fits
 		return Ownership.of(e.contents().getOrDefault(itemId, 0) + inv.quantity(itemId) + worn.quantity(itemId));
+	}
+
+	@Override
+	public boolean isCurrent(BankEvidence evidence)
+	{
+		return evidence != null && lifecycle.isCurrent(evidence.scope());
+	}
+
+	@Override
+	public Runnable fenced(BankEvidence evidence, Runnable work)
+	{
+		return () ->
+		{
+			if (isCurrent(evidence))
+			{
+				work.run();
+			}
+		};
 	}
 }

@@ -15,6 +15,12 @@ final class ItemClassifier
 	{
 	}
 
+	/** Reproduction stub: the definition id is not yet checked. */
+	static ItemKind classify(int itemId, int definitionId, int placeholderTemplateId, int note)
+	{
+		return classify(itemId, placeholderTemplateId, note);
+	}
+
 	static ItemKind classify(int itemId, int placeholderTemplateId, int note)
 	{
 		if (placeholderTemplateId != -1)

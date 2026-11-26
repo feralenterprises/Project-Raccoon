@@ -22,4 +22,10 @@ public interface BankObservationView
 	 * inventory and equipment are both reported with no excluded noted variants.
 	 */
 	Ownership combinedOwnership(int itemId);
+
+	/** Reproduction stub: currently checks the account scope only. */
+	boolean isCurrent(BankEvidence evidence);
+
+	/** Reproduction stub: currently fenced by account scope only. */
+	Runnable fenced(BankEvidence evidence, Runnable work);
 }

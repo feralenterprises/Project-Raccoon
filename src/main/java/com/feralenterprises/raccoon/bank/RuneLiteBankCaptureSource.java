@@ -43,6 +43,16 @@ final class RuneLiteBankCaptureSource implements BankCaptureSource
 		return visible(InterfaceID.Bankmain.UNIVERSE) ? BankVisibility.OPEN : BankVisibility.CLOSED;
 	}
 
+	/** Reproduction stub: the item widget is not yet considered. */
+	static BankVisibility visibilityOf(boolean pinVisible, boolean rootVisible, boolean itemsVisible)
+	{
+		if (pinVisible)
+		{
+			return BankVisibility.PIN;
+		}
+		return rootVisible ? BankVisibility.OPEN : BankVisibility.CLOSED;
+	}
+
 	private boolean visible(int componentId)
 	{
 		Widget w = client.getWidget(componentId);

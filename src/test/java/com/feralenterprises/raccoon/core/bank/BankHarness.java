@@ -37,6 +37,10 @@ final class BankHarness implements BankCaptureSource
 	ContainerRead equipment = ContainerRead.present(new ArrayList<>());
 	TabWitness witness = TabWitness.of(1, 0, 0, 0, 0, 0, 0, 0, 0);
 	Runnable duringCapture;
+	ClientPhase phaseBefore = ClientPhase.LOGGED_IN;
+	ClientPhase phaseAfter = ClientPhase.LOGGED_IN;
+	IdentityReading identityBefore;
+	IdentityReading identityAfter;
 
 	BankHarness()
 	{
@@ -128,6 +132,7 @@ final class BankHarness implements BankCaptureSource
 			throw new IllegalStateException("container read failed");
 		}
 		ContainerRead bank = bankOverride != null ? bankOverride : ContainerRead.present(bankSlots);
-		return new BankFrame(scope, tickIndex, bank, inventory, equipment, witness);
+		return new BankFrame(scope, tickIndex, phaseBefore, identityBefore != null ? identityBefore : identity, bank, inventory,
+			equipment, witness, phaseAfter, identityAfter != null ? identityAfter : identity);
 	}
 }
