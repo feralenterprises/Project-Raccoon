@@ -80,7 +80,12 @@ public class FoundationVerifier
 		"net/runelite/api/events/GameStateChanged",
 		"net/runelite/api/events/GameTick",
 		"net/runelite/api/events/ClientTick",
-		"net/runelite/client/eventbus/Subscribe"
+		"net/runelite/client/eventbus/Subscribe",
+		// FR-003 read-only bank observation: containers, item definitions, bank/PIN widget visibility
+		"net/runelite/api/ItemContainer",
+		"net/runelite/api/Item",
+		"net/runelite/api/ItemComposition",
+		"net/runelite/api/widgets/Widget"
 	));
 	/** Core (pure domain) may reference only these, plus itself. */
 	static final List<String> CORE_ALLOWED_PREFIXES = Arrays.asList("java/lang/", "java/util/", "java/time/");
@@ -106,7 +111,7 @@ public class FoundationVerifier
 		DENIED_PREFIXES.put("java/awt/", "UI");
 		DENIED_PREFIXES.put("net/runelite/client/ui/", "UI");
 		DENIED_PREFIXES.put("net/runelite/client/config/", "persistent config storage");
-		DENIED_PREFIXES.put("net/runelite/api/", "game observation (only the FR-002 lifecycle types are allowed before FR-003)");
+		DENIED_PREFIXES.put("net/runelite/api/", "game API outside the reviewed allowlist");
 		DENIED_PREFIXES.put("sun/", "internal JDK API");
 		DENIED_PREFIXES.put("jdk/internal/", "internal JDK API");
 		DENIED_PREFIXES.put("com/sun/", "internal JDK API / JNA");
@@ -952,11 +957,11 @@ public class FoundationVerifier
 			"package com.feralenterprises.raccoon.bad; public class HostImport { int x() { return net.runelite.client.plugins.xptracker.XpTrackerPlugin.x(); } }");
 		fx.put("org/thirdparty/Shaded.java", "package org.thirdparty; public class Shaded {}");
 		fx.put("net/runelite/api/Client.java", "package net.runelite.api; public interface Client { long getAccountHash(); }");
-		fx.put("net/runelite/api/ItemContainer.java", "package net.runelite.api; public interface ItemContainer { }");
+		fx.put("net/runelite/api/NPC.java", "package net.runelite.api; public interface NPC { }");
 		fx.put("com/feralenterprises/raccoon/account/Adapter.java",
 			"package com.feralenterprises.raccoon.account; public class Adapter { long h(net.runelite.api.Client c) { return c.getAccountHash(); } }");
 		fx.put("com/feralenterprises/raccoon/bad/Observer.java",
-			"package com.feralenterprises.raccoon.bad; public class Observer { net.runelite.api.ItemContainer bank; }");
+			"package com.feralenterprises.raccoon.bad; public class Observer { net.runelite.api.NPC npc; }");
 		fx.put("com/feralenterprises/raccoon/core/CoreToClient.java",
 			"package com.feralenterprises.raccoon.core; public final class CoreToClient { net.runelite.api.Client c; }");
 
@@ -1002,7 +1007,7 @@ public class FoundationVerifier
 		artifactCase("broad host import rejected", out, tmp, max, "outside the allowed surface", Collections.emptyMap(), good, "com/feralenterprises/raccoon/bad/HostImport.class");
 		artifactCase("lifecycle adapter RuneLite types allowed", out, tmp, max, null, Collections.emptyMap(), good,
 			"com/feralenterprises/raccoon/account/Adapter.class");
-		artifactCase("observer API (ItemContainer) still rejected", out, tmp, max, "forbidden game observation", Collections.emptyMap(), good,
+		artifactCase("unlisted game API (NPC) still rejected", out, tmp, max, "forbidden game API outside the reviewed allowlist", Collections.emptyMap(), good,
 			"com/feralenterprises/raccoon/bad/Observer.class");
 		artifactCase("core -> allowed RuneLite type still rejected", out, tmp, max, "net/runelite/api/Client in com/feralenterprises/raccoon/core/CoreToClient.class", Collections.emptyMap(), good,
 			"com/feralenterprises/raccoon/core/CoreToClient.class");

@@ -1,6 +1,7 @@
 package com.feralenterprises.raccoon;
 
 import com.feralenterprises.raccoon.account.AccountLifecycleService;
+import com.feralenterprises.raccoon.bank.BankObservationService;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.events.ClientTick;
@@ -11,9 +12,9 @@ import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 
 /**
- * Plugin entry. Owns the account lifecycle and forwards client events to it. It has no UI,
- * observers, persistence or networking; later assignments consume the lifecycle through
- * {@link AccountLifecycleService#view()} and {@link AccountLifecycleService#data()}.
+ * Plugin entry. Owns the account lifecycle and read-only bank observation and forwards client
+ * events to them. No UI, persistence, networking or game writes; later assignments consume
+ * {@link AccountLifecycleService#view()} and {@link BankObservationService#view()}.
  */
 @Slf4j
 @PluginDescriptor(
@@ -25,26 +26,32 @@ public class RaccoonPlugin extends Plugin
 	@Inject
 	private AccountLifecycleService accountLifecycle;
 
+	@Inject
+	private BankObservationService bankObservation;
+
 	public RaccoonPlugin()
 	{
 	}
 
 	/** Test seam. */
-	RaccoonPlugin(AccountLifecycleService accountLifecycle)
+	RaccoonPlugin(AccountLifecycleService accountLifecycle, BankObservationService bankObservation)
 	{
 		this.accountLifecycle = accountLifecycle;
+		this.bankObservation = bankObservation;
 	}
 
 	@Override
 	protected void startUp()
 	{
 		accountLifecycle.start();
+		bankObservation.reset();
 		log.debug("Project Raccoon started");
 	}
 
 	@Override
 	protected void shutDown()
 	{
+		bankObservation.reset();
 		accountLifecycle.stop();
 		log.debug("Project Raccoon stopped");
 	}
@@ -58,7 +65,9 @@ public class RaccoonPlugin extends Plugin
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
+		// lifecycle first, so bank observation sees this tick's fresh scope
 		accountLifecycle.onGameTick();
+		bankObservation.onGameTick();
 	}
 
 	@Subscribe

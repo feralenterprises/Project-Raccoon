@@ -76,6 +76,42 @@ above (B05).
   while not publishable and cleared on retirement (no cross-account history). It never becomes
   current again; reopening the bank needs a fresh streak.
 
-## Acceptance cases → tests
+## Implementation
 
-Filled in with the implementation (`core/bank/BankObservationTrackerTest`, adapter tests).
+| Part | Location |
+|---|---|
+| Pure core (no RuneLite types) | `core/bank`: `BankObservationTracker` (gate, streak, authority), `BankEvaluator` (frame checks), value types |
+| RuneLite reads (read-only, client thread) | `bank/RuneLiteBankCaptureSource`: `getWidget(InterfaceID.BankpinKeypad.UNIVERSE / Bankmain.UNIVERSE)`, `getItemContainer(InventoryID.BANK / INV / WORN)`, `getItemDefinition`, `getVarbitValue(VarbitID.BANK_TAB_1..9)` |
+| Wiring | `bank/BankObservationService`; `RaccoonPlugin.onGameTick` runs the lifecycle tick, then the bank tick; tick index = `client.getTickCount()` |
+| History | lifecycle login slot `bank.history` |
+
+All RuneLite names were checked against the pinned 1.13.8 source (`8397ec71`): `InventoryID.BANK = 95`,
+`INV = 93`, `WORN = 94`; `VarbitID.BANK_TAB_1..9 = 4171..4179`; `ItemID.BANK_FILLER = 20594`;
+`ItemComposition.getNote()` 799 = noted, `getPlaceholderTemplateId()` 14401 = placeholder.
+
+## Acceptance cases → tests (`core/bank/BankObservationTrackerTest`, `bank/BankObservationServiceTest`)
+
+| Case | Tests |
+|---|---|
+| B01 | `b01_*` (4): two consecutive matching populated ticks, unknown witness degraded only, negative witness count, witness becoming known |
+| B02 | `b02_*` (3): three for an empty bank, unknown witness never, placeholder-only bank is empty |
+| B03 | `b03_*` (5): PIN (no capture), hidden bank, missing container, read exception, unreadable container/visibility |
+| B04 | `b04_*` (5): changed contents, changed witness, skipped tick, duplicate tick (no second capture), LOADING revalidation needs fresh streak |
+| B05 | `b05_*` (2): filtered view qualifies with a complete container; witness exceeding slots never qualifies |
+| B06 | `b06_*` (7): placeholders/filler/noted excluded; malformed quantities and slots; unreadable definition; per-item, combined and witness overflow |
+| B07 | `b07_*` (6): missing carried = unreported; combined claims; unreadable or malformed carried invalidates; noted carried blocks combined; carried changes keep the streak |
+| B08 | `b08_*` (4): identity change and hop during capture, immediate revocation without a tick, no cross-account history |
+| B09 | `b09_*` (5): close revokes and keeps same-login history; no capture while closed; reopen needs fresh streak; history cleared on retirement; history survives a same-login hop but never becomes current |
+| B10 | `b10_*` (4): evaluation failure after populated acceptance; pre-read failure and evaluation failure after empty acceptance; stale result |
+| Limits | retry bound, no capture while not publishable, failure budget reset, ordered snapshots, no hash in diagnostics; adapter wiring and item classification |
+
+Mutation check (local): 13 deliberate rule removals (streak lengths, consecutive ticks, post-capture
+scope check, unknown witness, scope-change revocation, retry bound, capture while closed, duplicate
+tick, combined overflow, missing = empty, witness slot check, noted counted) are each caught.
+
+## Remaining limitations
+
+- Burrow not accessible: no parity; noted-variant policy and retry bound provisional.
+- RuneLite reads are compile-verified against the pinned API and covered by fakes; behaviour in a
+  real client (widget visibility during PIN, container timing, Bank Tags layouts) needs FR-006.
+- Carried items are evidence for the observed tick only; they do not take part in streak matching.

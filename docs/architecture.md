@@ -17,10 +17,12 @@ Status: FR-000 foundation. Roadmap and authorization: issue #1 (authoritative).
 ```
 com.feralenterprises.raccoon                 plugin entry and event forwarding (RuneLite-facing)
 com.feralenterprises.raccoon.account         RuneLite adapter for the account lifecycle
+com.feralenterprises.raccoon.bank            RuneLite adapter for bank observation (reads only)
         │
         ▼  (allowed)
 com.feralenterprises.raccoon.core            pure domain: java.lang / java.util / java.time only
 com.feralenterprises.raccoon.core.account    account lifecycle: single source of truth (FR-002)
+com.feralenterprises.raccoon.core.bank       read-only bank observation over the lifecycle (FR-003)
 ```
 
 - `core` must never depend on the plugin package, on RuneLite, or on any other library.
@@ -29,7 +31,10 @@ com.feralenterprises.raccoon.core.account    account lifecycle: single source of
   `PluginDescriptor`, plus (FR-002, exact types only) `net.runelite.api.Client` (and `com.jagex.oldscape.pub.OAuthApi`, which declares
   `getAccountHash`), `GameState`,
   `WorldType`, `events.GameStateChanged`, `events.GameTick`, `events.ClientTick` and
-  `net.runelite.client.eventbus.Subscribe`. All other `net.runelite.api` types stay forbidden.
+  `net.runelite.client.eventbus.Subscribe`; (FR-003, exact types only) `net.runelite.api.ItemContainer`,
+  `Item`, `ItemComposition` and `widgets.Widget` for read-only bank observation. Game-value constants
+  (`gameval.*`) compile to literals and add no references. All other `net.runelite.api` types
+  stay forbidden.
 - Account state lives only in `core.account.AccountLifecycle` (see `docs/account-lifecycle.md`);
   consumers use `AccountLifecycleView` and `AccountDataRegistry` (see `docs/ui-integration.md`).
 - Later assignments widen the allowed surface only by editing the allowlist in

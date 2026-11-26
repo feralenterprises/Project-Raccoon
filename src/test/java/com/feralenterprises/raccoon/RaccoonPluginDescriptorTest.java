@@ -6,6 +6,10 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.feralenterprises.raccoon.account.AccountLifecycleService;
+import com.feralenterprises.raccoon.bank.BankObservationService;
+import com.feralenterprises.raccoon.core.bank.BankCaptureSource;
+import com.feralenterprises.raccoon.core.bank.BankFrame;
+import com.feralenterprises.raccoon.core.bank.BankVisibility;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -64,7 +68,21 @@ public class RaccoonPluginDescriptorTest
 	{
 		AccountLifecycleService service = new AccountLifecycleService(() -> "LOGIN_SCREEN", () -> -1L,
 			java.util.Collections::emptySet, System::nanoTime);
-		RaccoonPlugin plugin = new RaccoonPlugin(service);
+		BankObservationService bank = new BankObservationService(service, new BankCaptureSource()
+		{
+			@Override
+			public BankVisibility visibility()
+			{
+				throw new AssertionError("no reads while signed out");
+			}
+
+			@Override
+			public BankFrame capture(com.feralenterprises.raccoon.core.account.AccountScope scope, long tick)
+			{
+				throw new AssertionError("no capture while signed out");
+			}
+		}, () -> 1);
+		RaccoonPlugin plugin = new RaccoonPlugin(service, bank);
 		plugin.startUp();
 		assertFalse(service.view().snapshot().isPublishable());
 		plugin.shutDown();

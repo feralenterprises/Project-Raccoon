@@ -52,6 +52,27 @@ transitions.
     strictly increasing per subscriber; nothing arrives after `cancel()`. Subscriptions survive
     plugin stop/start, so cancel them when the consumer is disposed.
 
+## Bank observation (FR-003, package `com.feralenterprises.raccoon.core.bank`)
+
+| Type | Use |
+|---|---|
+| `BankObservationView` | `snapshot()`, `subscribe(listener)`, `bankOwnership(itemId)`, `combinedOwnership(itemId)`. Obtain via `BankObservationService.view()`. |
+| `BankSnapshot` | Immutable: `status()`, `reason()`, `current()` (only `QUALIFIED_CURRENT`), `historical()` (only `HISTORICAL`), `streak()`, `revision()`. |
+| `BankEvidence` | Contents (item id → quantity), `inventory()` / `equipment()` (`CarriedEvidence`, possibly unreported), `firstTick()` / `lastTick()`, `scope()`. |
+| `Ownership` | `OWNED` (with quantity), `NOT_OWNED`, `UNKNOWN`. |
+
+Rules:
+
+1. **Ownership comes only from `bankOwnership` / `combinedOwnership`.** They are authoritative
+   (they check the lifecycle at call time). Any status other than `QUALIFIED_CURRENT` answers
+   `UNKNOWN`; never infer "not owned" from `DEGRADED_POPULATED`, `WAITING` or `HISTORICAL`.
+2. **`HISTORICAL` is provenance only:** show it as "last seen at tick N" if at all, never as current.
+3. **Unreported is not empty:** `CarriedEvidence.isReported() == false` means unknown.
+4. **Re-tag on scope change:** bank evidence carries its `AccountScope`; gate any value derived from
+   it with `ConsumerScopeGate.accepts(evidence.scope())` on your thread, as for account data.
+5. Bank listeners run on the client thread under the tracker lock: enqueue only, never block.
+6. Call `bankOwnership` on the client thread or accept that it reflects the moment of the call.
+
 ## Simulator
 
 The simulator reuses the same interfaces (SR-4):
@@ -62,6 +83,9 @@ The simulator reuses the same interfaces (SR-4):
   to exercise the adapter path without a RuneLite client.
 
 Production panels then consume the simulator's `AccountLifecycleView` exactly as in the client.
+For bank observation, construct `BankObservationTracker(lifecycle, lifecycle)` and drive
+`onTick(tickIndex, source)` with any `BankCaptureSource` (see test `BankHarness`), or
+`BankObservationService(accounts, source, tickSupplier)`.
 
 ## Changes in the 2026-11-26 audit repair
 
