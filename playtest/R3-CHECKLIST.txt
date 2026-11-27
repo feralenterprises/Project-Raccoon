@@ -1,16 +1,25 @@
-R3 - play and observe (about 15 minutes). The test plugin only watches; it never acts in the game.
+R3 - play and observe (about 20 minutes). The test plugin is designed only to watch; it does not act in the game.
 Only normal worlds. Never hop to PvP, Deadman, Seasonal, Beta or other special worlds for this test.
+You need a second account for step 10: one you own, or one whose owner has agreed to this test.
 
- 1. Sign in. Jagex account: click the Jagex account icon in the client's right-hand sidebar,
-    choose "Add Jagex Account", sign in in the window that opens, pick your character, then
-    press "Play Now". Older (non-Jagex) account: type your details on the login screen.
- 2. Stand still for 30 seconds after you arrive in the game.
- 3. Open your bank (enter your bank PIN if you have one). Keep it open for at least 1 minute.
- 4. Close the bank. Wait 10 seconds. Open it again for 10 seconds, then close it.
- 5. Hop once to another normal world of the same kind (members to members, free to free).
-    Wait 30 seconds after you arrive.
- 6. Kill Brutus at least twice (genuine kills; Demonic Brutus does not count).
-    Optional: hop once more after the second kill, then kill Brutus one more time.
- 7. Log out to the login screen, log back in, and wait 30 seconds.
- 8. Keep playing normally until at least 10 minutes have passed since step 2.
- 9. Close the client window. The results appear here a few seconds later.
+ 1. On the login screen, click the wrench (Configuration) in the right-hand sidebar, search for
+    "Project Raccoon" and switch it OFF. Do not touch "Raccoon Playtest Witness".
+ 2. Sign in. Jagex account: Jagex account icon in the sidebar, "Add Jagex Account", sign in,
+    pick your character, "Play Now". Older account: type your details on the login screen.
+ 3. Wait 20 seconds in the game, then switch "Project Raccoon" back ON. Wait 30 seconds.
+ 4. Open your bank (enter your PIN if asked) and leave it open for at least 1 minute.
+ 5. With the bank still open: click the bank's worn-equipment button to change the view, wait
+    5 seconds, switch back; open the bank's settings/menu for 5 seconds and close it again.
+    (This may or may not produce the "failed read" the test is looking for; that is fine.)
+    Leave the bank open for another 30 seconds.
+ 6. Close the bank. Wait 10 seconds. Open it again for 30 seconds, then close it.
+ 7. Hop once to another normal world of the same kind. Wait 30 seconds after you arrive.
+ 8. Kill Brutus twice in a row without hopping or logging out in between
+    (genuine kills; Demonic Brutus does not count).
+ 9. Switch "Project Raccoon" OFF, wait 10 seconds, switch it ON again, wait 30 seconds.
+10. Log out. Sign in with the second account, wait 30 seconds, open and close its bank, log out.
+11. Sign in with your first account again and keep playing normally until at least 10 minutes
+    have passed since step 3.
+12. Close the client window normally (the X). The results appear here shortly after.
+Anything not observed is reported as BLOCKED. That is not your fault; the reviewer will say
+whether a step should be repeated.

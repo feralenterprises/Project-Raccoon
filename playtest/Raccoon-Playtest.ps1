@@ -2,12 +2,13 @@
 Project Raccoon - FR-006 Windows playtest launcher (verification kit, not a product).
 
 Everything runs from this folder: its own Java runtime, its own pinned RuneLite 1.13.8 developer
-client, and an isolated RuneLite home (.\home) and temp folder (.\tmp). Your normal RuneLite
-folder (%USERPROFILE%\.runelite) is never read or written; the launcher snapshots it before and
-after every client step and reports any difference.
+client, and an isolated RuneLite home (.\home) and temp folder (.\tmp). The kit is designed not
+to use your normal RuneLite folder; it checks the watched locations before and after every client
+step, and if a check fails or cannot be completed the kit stops itself (KIT-STOPPED.txt) and
+refuses further client launches until the reviewer has looked at it.
 
 Steps
-  SelfCheck  verify every kit file against kit-manifest.json and show the isolation paths
+  SelfCheck  verify every kit file against kit-manifest.json (and that nothing unlisted is present)
   R1         deterministic regression replay (all 20 permanent suites; no game client)
   R2         native adapter replay with synthetic fixtures on the genuine client thread
              (client opens, reaches the login screen, runs, closes itself; no login needed)
@@ -28,17 +29,83 @@ param(
 $ErrorActionPreference = 'Stop'
 $Kit = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ManifestPath = Join-Path $Kit 'kit-manifest.json'
+$Latch = Join-Path $Kit 'KIT-STOPPED.txt'
 $Java = Join-Path $Kit 'runtime\bin\java.exe'
 $IsoHome = Join-Path $Kit 'home'
 $IsoTmp = Join-Path $Kit 'tmp'
 $Receipts = Join-Path $Kit 'receipts'
-$RealRuneLite = Join-Path $env:USERPROFILE '.runelite'
-$ClientLib = Join-Path $Kit 'lib\client'
-$DevLib = Join-Path $Kit 'lib\dev'
-$IsoLib = Join-Path $Kit 'lib\isolation'
+$Sideload = Join-Path $IsoHome '.runelite\sideloaded-plugins'
+$IsoLogs = Join-Path $IsoHome '.runelite\logs'
 $Official = Join-Path $Kit 'official\project-raccoon.jar'
 
+# files the kit itself creates while running; everything else must be in the manifest
+$RuntimeOwned = @('kit-manifest.json', 'KIT-STOPPED.txt')
+$RuntimeOwnedDirs = @('receipts', 'home', 'tmp')
+
 function Say([string]$text, [string]$color = 'Gray') { Write-Host $text -ForegroundColor $color }
+
+# ------------------------------------------------------------------ latch (fail closed)
+
+function Test-Latched { return (Test-Path -LiteralPath $Latch) }
+
+function Assert-NotLatched {
+	if (Test-Latched) {
+		throw "The kit stopped itself after a safety check failed or could not be completed (see KIT-STOPPED.txt). Send that file and the receipts to the reviewer. Do not run further steps."
+	}
+}
+
+function Set-Latch([string]$reason) {
+	$text = @(
+		"The Project Raccoon playtest kit stopped itself at $((Get-Date).ToUniversalTime().ToString('u')).",
+		"Reason: $reason",
+		"No further test-client launches are allowed from this folder.",
+		"Send this file and the receipts zip (menu option 6) to the reviewer."
+	)
+	Set-Content -LiteralPath $Latch -Encoding UTF8 -Value $text
+}
+
+# ------------------------------------------------------------------ path safety
+
+function Assert-SafePath([string]$path) {
+	# the path must stay inside the kit, and neither it nor any existing parent up to the kit may
+	# be a junction, symbolic link or other reparse point
+	$full = [System.IO.Path]::GetFullPath($path)
+	$kitFull = [System.IO.Path]::GetFullPath($Kit).TrimEnd('\')
+	if (-not $full.StartsWith($kitFull + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+		throw "Refusing to use a path outside the kit folder: $full"
+	}
+	$p = $full
+	while ($p.Length -ge $kitFull.Length) {
+		if (Test-Path -LiteralPath $p) {
+			$item = Get-Item -LiteralPath $p -Force
+			if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+				throw "Refusing to use $p because it is a junction or link (reparse point). Extract the kit to a normal folder such as C:\RaccoonPlaytest."
+			}
+		}
+		$parent = Split-Path -Parent $p
+		if (-not $parent -or $parent -eq $p) { break }
+		$p = $parent
+	}
+}
+
+function Assert-NoReparseInside([string]$dir) {
+	Assert-SafePath $dir
+	if (-not (Test-Path -LiteralPath $dir)) { return }
+	$errs = $null
+	$links = @(Get-ChildItem -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue -ErrorVariable errs |
+		Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint })
+	if (@($errs).Count -gt 0) { throw "Could not fully inspect $dir before changing it; nothing was deleted." }
+	if ($links.Count -gt 0) { throw "Refusing to change ${dir}: it contains a junction or link ($($links[0].FullName))." }
+}
+
+function Remove-KitContents([string]$dir) {
+	Assert-NoReparseInside $dir
+	if (Test-Path -LiteralPath $dir) {
+		Get-ChildItem -LiteralPath $dir -Force | Remove-Item -Recurse -Force
+	}
+}
+
+# ------------------------------------------------------------------ manifest, integrity, classpaths
 
 function Read-Manifest {
 	if (-not (Test-Path $ManifestPath)) { throw "kit-manifest.json is missing: this folder is not a complete playtest kit." }
@@ -47,77 +114,122 @@ function Read-Manifest {
 
 function Test-KitIntegrity($manifest) {
 	$bad = @()
+	$listed = @{}
 	foreach ($f in $manifest.files) {
+		$listed[$f.path.ToLowerInvariant()] = $true
 		$p = Join-Path $Kit $f.path
 		if (-not (Test-Path -LiteralPath $p)) { $bad += "missing $($f.path)"; continue }
 		$h = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
 		if ($h -ne $f.sha256) { $bad += "changed $($f.path)" }
 	}
+	$errs = $null
+	$present = @(Get-ChildItem -LiteralPath $Kit -Recurse -Force -File -ErrorAction SilentlyContinue -ErrorVariable errs)
+	if (@($errs).Count -gt 0) { $bad += "could not list every kit file" }
+	foreach ($item in $present) {
+		$rel = $item.FullName.Substring($Kit.Length + 1)
+		$top = ($rel -split '\\')[0]
+		if ($RuntimeOwnedDirs -contains $top) { continue }
+		if ($RuntimeOwned -contains $rel) { continue }
+		if ($rel -like 'raccoon-receipts-*.zip') { continue }
+		if (-not $listed.ContainsKey($rel.ToLowerInvariant())) { $bad += "unlisted $rel" }
+	}
 	return ,$bad
 }
 
-function Get-Snapshot([string]$dir) {
-	if (-not (Test-Path -LiteralPath $dir)) { return [pscustomobject]@{ exists = $false; files = 0; digest = 'absent' } }
-	$rows = Get-ChildItem -LiteralPath $dir -Recurse -Force -File -ErrorAction SilentlyContinue |
-		Sort-Object FullName |
-		ForEach-Object { '{0}|{1}|{2}' -f $_.FullName.Substring($dir.Length), $_.Length, $_.LastWriteTimeUtc.Ticks }
-	$text = ($rows -join "`n")
-	$sha = [System.Security.Cryptography.SHA256]::Create()
-	$digest = -join ($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($text)) | ForEach-Object { $_.ToString('x2') })
-	return [pscustomobject]@{ exists = $true; files = @($rows).Count; digest = $digest }
+function Get-KitClasspath($manifest, [string[]]$dirs) {
+	# explicit JARs from the manifest only, in manifest order; never a wildcard
+	$jars = @()
+	foreach ($d in $dirs) {
+		foreach ($f in $manifest.files) {
+			if ($f.path.StartsWith($d + '\', [System.StringComparison]::OrdinalIgnoreCase) -and $f.path.EndsWith('.jar')) {
+				$jars += (Join-Path $Kit $f.path)
+			}
+		}
+	}
+	if ($jars.Count -eq 0) { throw "No JARs listed for $($dirs -join ', ')." }
+	return ($jars -join ';')
 }
 
-# Locations outside the kit that RuneLite or the game client could write to on Windows. The
-# injected game client also reads %USERPROFILE% (not only user.home), so the profile's
+# ------------------------------------------------------------------ isolation evidence
+
+function Get-Snapshot([string]$dir) {
+	if (-not (Test-Path -LiteralPath $dir)) { return [pscustomobject]@{ exists = $false; files = 0; digest = 'absent'; complete = $true } }
+	$errs = $null
+	$rows = Get-ChildItem -LiteralPath $dir -Recurse -Force -File -ErrorAction SilentlyContinue -ErrorVariable errs |
+		Sort-Object FullName |
+		ForEach-Object { '{0}|{1}|{2}' -f $_.FullName.Substring($dir.Length), $_.Length, $_.LastWriteTimeUtc.Ticks }
+	$text = (@($rows) -join "`n")
+	$sha = [System.Security.Cryptography.SHA256]::Create()
+	$digest = -join ($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($text)) | ForEach-Object { $_.ToString('x2') })
+	return [pscustomobject]@{ exists = $true; files = @($rows).Count; digest = $digest; complete = (@($errs).Count -eq 0) }
+}
+
+function Get-JavaPrefsDigest {
+	# every key, value name, value kind and value data under the shared Java preferences key
+	$key = 'HKCU:\Software\JavaSoft\Prefs'
+	if (-not (Test-Path $key)) { return [pscustomobject]@{ digest = 'absent'; complete = $true; keys = 0 } }
+	$errs = $null
+	$keys = @(Get-Item $key) + @(Get-ChildItem $key -Recurse -ErrorAction SilentlyContinue -ErrorVariable errs)
+	$lines = foreach ($k in ($keys | Sort-Object Name)) {
+		"[" + $k.Name + "]"
+		foreach ($n in ($k.GetValueNames() | Sort-Object)) {
+			'{0}={1}:{2}' -f $n, $k.GetValueKind($n), (@($k.GetValue($n)) -join ',')
+		}
+	}
+	$sha = [System.Security.Cryptography.SHA256]::Create()
+	$digest = -join ($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes((@($lines) -join "`n"))) | ForEach-Object { $_.ToString('x2') })
+	return [pscustomobject]@{ digest = $digest; complete = (@($errs).Count -eq 0); keys = $keys.Count }
+}
+
+# The injected game client also reads %USERPROFILE% (not only user.home), so the profile's
 # top-level entries and the classic Jagex cache locations are watched as well.
 function Get-ProfileSnapshot {
 	$profileDir = $env:USERPROFILE
 	$parts = [ordered]@{}
-	$parts['.runelite'] = (Get-Snapshot (Join-Path $profileDir '.runelite')).digest
-	$parts['jagexcache'] = (Get-Snapshot (Join-Path $profileDir 'jagexcache')).digest
+	$complete = $true
+	foreach ($d in @('.runelite', 'jagexcache')) {
+		$s = Get-Snapshot (Join-Path $profileDir $d)
+		$parts[$d] = $s.digest
+		$complete = $complete -and $s.complete
+	}
 	foreach ($f in @('jagex_cl_oldschool_LIVE.dat', 'random.dat', '.jagex_cache_32')) {
 		$p = Join-Path $profileDir $f
 		$parts[$f] = $(if (Test-Path -LiteralPath $p) { $i = Get-Item -LiteralPath $p -Force; '{0}|{1}' -f $i.Length, $i.LastWriteTimeUtc.Ticks } else { 'absent' })
 	}
-	$top = @(Get-ChildItem -LiteralPath $profileDir -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch '^(ntuser|NTUSER)' } | ForEach-Object { $_.Name } | Sort-Object)
+	$errs = $null
+	$top = @(Get-ChildItem -LiteralPath $profileDir -Force -ErrorAction SilentlyContinue -ErrorVariable errs |
+		Where-Object { $_.Name -notmatch '^(ntuser|NTUSER)' } | ForEach-Object { $_.Name } | Sort-Object)
+	$complete = $complete -and (@($errs).Count -eq 0)
 	$parts['profileTopLevel'] = ($top -join '|')
-	return $parts
+	$prefs = Get-JavaPrefsDigest
+	$parts['javaPreferences'] = $prefs.digest
+	$complete = $complete -and $prefs.complete
+	return [pscustomobject]@{ parts = $parts; complete = $complete }
 }
 
 function Compare-ProfileSnapshot($before, $after) {
 	$changed = @()
-	foreach ($k in $before.Keys) { if ($before[$k] -ne $after[$k]) { $changed += $k } }
-	if ($before['profileTopLevel'] -ne $after['profileTopLevel']) {
-		$b = $before['profileTopLevel'] -split '\|'; $a = $after['profileTopLevel'] -split '\|'
-		$added = @($a | Where-Object { $b -notcontains $_ }); $removed = @($b | Where-Object { $a -notcontains $_ })
-		$changed += ("profile entries added [{0}] removed [{1}]" -f ($added -join ', '), ($removed -join ', '))
+	foreach ($k in $before.parts.Keys) { if ($before.parts[$k] -ne $after.parts[$k]) { $changed += $k } }
+	if ($before.parts['profileTopLevel'] -ne $after.parts['profileTopLevel']) {
+		$b = $before.parts['profileTopLevel'] -split '\|'; $a = $after.parts['profileTopLevel'] -split '\|'
+		$added = @($a | Where-Object { $b -notcontains $_ }).Count; $removed = @($b | Where-Object { $a -notcontains $_ }).Count
+		$changed += ("profile top-level entries: {0} added, {1} removed" -f $added, $removed)
 	}
 	return ,$changed
-}
-
-function Get-JavaPrefsCount {
-	$key = 'HKCU:\Software\JavaSoft\Prefs'
-	if (-not (Test-Path $key)) { return 0 }
-	return @(Get-ChildItem $key -Recurse -ErrorAction SilentlyContinue).Count
-}
-
-function Get-JavaPrefsNames {
-	$key = 'HKCU:\Software\JavaSoft\Prefs'
-	if (-not (Test-Path $key)) { return @() }
-	return @(Get-ChildItem $key -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.Name -replace '^.*\\JavaSoft\\Prefs\\?', '' })
 }
 
 function Assert-NoRuneLiteRunning {
 	$running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '^(RuneLite|JagexLauncher)$' })
 	if ($running.Count -gt 0) {
 		if ($NonInteractive) { throw "RuneLite or the Jagex Launcher is running; close it first." }
-		Say "Please close RuneLite and the Jagex Launcher first (they could change your normal RuneLite folder during the test)." Yellow
+		Say "Please close RuneLite and the Jagex Launcher first (they could change the watched folders during the test)." Yellow
 		Read-Host "Press Enter when they are closed" | Out-Null
 		Assert-NoRuneLiteRunning
 	}
 }
 
 function New-RunDir([string]$name) {
+	Assert-SafePath $Receipts
 	$stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')
 	$dir = Join-Path $Receipts "$name-$stamp"
 	New-Item -ItemType Directory -Force -Path $dir | Out-Null
@@ -125,6 +237,8 @@ function New-RunDir([string]$name) {
 }
 
 function Get-JvmArgs($manifest, [string]$runDir) {
+	Assert-SafePath $IsoHome
+	Assert-SafePath $IsoTmp
 	New-Item -ItemType Directory -Force -Path $IsoHome, $IsoTmp | Out-Null
 	return @(
 		'-ea', '-Xmx1024m',
@@ -141,36 +255,39 @@ function Get-JvmArgs($manifest, [string]$runDir) {
 	)
 }
 
+# Runs $body between two snapshots of the watched locations. Returns $true only if every check
+# completed and nothing changed; otherwise the kit latches (no further launches) and returns $false.
 function Invoke-Isolated([string]$runDir, [scriptblock]$body) {
+	Assert-NotLatched
 	Assert-NoRuneLiteRunning
-	$before = Get-Snapshot $RealRuneLite
-	$profileBefore = Get-ProfileSnapshot
-	$prefsBefore = Get-JavaPrefsCount
-	try { & $body }
-	finally {
-		$after = Get-Snapshot $RealRuneLite
-		$profileChanges = Compare-ProfileSnapshot $profileBefore (Get-ProfileSnapshot)
-		$prefsAfter = Get-JavaPrefsCount
-		$unchanged = ($before.digest -eq $after.digest) -and ($prefsBefore -eq $prefsAfter) -and ($profileChanges.Count -eq 0)
-		$iso = [ordered]@{
-			normalRuneLiteFolder = '%USERPROFILE%\.runelite'
-			existsBefore = $before.exists; filesBefore = $before.files; digestBefore = $before.digest
-			existsAfter = $after.exists; filesAfter = $after.files; digestAfter = $after.digest
-			javaPrefsKeysBefore = $prefsBefore; javaPrefsKeysAfter = $prefsAfter
-			profileWatch = 'jagexcache, jagex_cl_oldschool_LIVE.dat, random.dat, .jagex_cache_32, profile top-level entries'
-			profileChanges = @($profileChanges)
-			isolatedHome = '<kit>\home'; isolatedTemp = '<kit>\tmp'
-			result = $(if ($unchanged) { 'PASS' } else { 'FAIL' })
-		}
-		$iso | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $runDir 'isolation.json')
-		if ($unchanged) { Say "Isolation: your normal RuneLite folder, Jagex cache, profile and Java settings were not changed." Green }
-		else {
-			Say "Isolation FAILED: your normal RuneLite folder or Java settings changed during this step. Please report this." Red
-			Say ("  normal RuneLite folder: exists {0}->{1}, files {2}->{3}, digest {4}->{5}" -f $before.exists, $after.exists, $before.files, $after.files, $before.digest, $after.digest) Red
-			Say ("  Java preferences keys: {0}->{1} now: {2}" -f $prefsBefore, $prefsAfter, ((Get-JavaPrefsNames) -join ', ')) Red
-			Say ("  profile changes: {0}" -f ($profileChanges -join '; ')) Red
-		}
+	$before = Get-ProfileSnapshot
+	$bodyError = $null
+	try { & $body | Out-Host }
+	catch { $bodyError = $_.Exception.Message }
+	$after = Get-ProfileSnapshot
+	$changes = Compare-ProfileSnapshot $before $after
+	$complete = $before.complete -and $after.complete
+	$ok = $complete -and ($changes.Count -eq 0)
+	$iso = [ordered]@{
+		watched = '%USERPROFILE%: .runelite, jagexcache, jagex_cl_oldschool_LIVE.dat, random.dat, .jagex_cache_32, top-level entries; HKCU\Software\JavaSoft\Prefs (keys and values)'
+		checksComplete = $complete
+		changes = @($changes)
+		isolatedHome = '<kit>\home'; isolatedTemp = '<kit>\tmp'
+		stepError = $bodyError
+		result = $(if ($ok) { 'PASS' } elseif (-not $complete) { 'INCOMPLETE' } else { 'FAIL' })
 	}
+	$iso | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $runDir 'isolation.json')
+	if ($ok) {
+		Say "Isolation check: no change detected in the watched locations." Green
+	}
+	else {
+		$reason = $(if (-not $complete) { 'an isolation check could not be completed (a watched location could not be read)' } else { 'a watched location changed: ' + ($changes -join '; ') })
+		Set-Latch $reason
+		Say "STOPPED: $reason." Red
+		Say "The kit will not launch the test client again. Send KIT-STOPPED.txt and the receipts to the reviewer." Red
+	}
+	if ($bodyError) { Say "The step itself reported a problem: $bodyError" Red }
+	return $ok
 }
 
 function Start-Client([string[]]$argList, [string]$workDir, [int]$timeoutSeconds, [string]$stopWhenLog, [string]$stopPattern) {
@@ -195,7 +312,7 @@ function Start-Client([string[]]$argList, [string]$workDir, [int]$timeoutSeconds
 }
 
 function Invoke-Evaluate([string]$runDir, [string[]]$evalArgs) {
-	$cp = "$ClientLib\*;$IsoLib\*;$DevLib\*"
+	$cp = Get-KitClasspath (Read-Manifest) @('lib\client', 'lib\isolation', 'lib\dev')
 	$out = & $Java -cp $cp com.feralenterprises.raccoon.playtest.Evaluate @evalArgs
 	$code = $LASTEXITCODE
 	$out | ForEach-Object { "$_" } | Tee-Object -FilePath (Join-Path $runDir 'verdicts.txt') | ForEach-Object { Say $_ }
@@ -208,6 +325,47 @@ function Get-LatestReceipt([string]$runDir, [string]$step) {
 	return (Join-Path $runDir "$step-missing.jsonl")
 }
 
+# ------------------------------------------------------------------ side-load and logs
+
+function Clear-SideloadDir {
+	# a JAR left over from R4 must never be side-loaded into an R2/R3 client
+	Remove-KitContents $Sideload
+	if ((Test-Path -LiteralPath $Sideload) -and @(Get-ChildItem -LiteralPath $Sideload -Force).Count -gt 0) {
+		throw "The side-load folder could not be emptied."
+	}
+}
+
+function Set-AsideClientLog([string]$run) {
+	Assert-SafePath $IsoLogs
+	$log = Join-Path $IsoLogs 'client.log'
+	if (Test-Path -LiteralPath $log) { Move-Item -LiteralPath $log (Join-Path $IsoLogs ("client-before-" + (Split-Path $run -Leaf) + ".log")) }
+	return $log
+}
+
+function Initialize-Sideload($m, [string]$run) {
+	Clear-SideloadDir
+	New-Item -ItemType Directory -Force -Path $Sideload | Out-Null
+	Assert-SafePath $Sideload
+	Copy-Item -LiteralPath $Official (Join-Path $Sideload 'project-raccoon.jar')
+	$h = (Get-FileHash (Join-Path $Sideload 'project-raccoon.jar') -Algorithm SHA256).Hash.ToLowerInvariant()
+	if ($h -ne $m.official.sha256) { throw "Sideloaded JAR hash $h does not match the retained official JAR." }
+	return (Set-AsideClientLog $run)
+}
+
+function Test-NoSideloadInLog([string]$log) {
+	if (-not (Test-Path -LiteralPath $log)) { return $true }
+	return -not (Select-String -LiteralPath $log -Pattern 'Side-loading plugin' -Quiet)
+}
+
+function Save-LogExcerpt([string]$log, [string]$run) {
+	if (-not (Test-Path $log)) { return }
+	# plugin-loading and Raccoon lines only: no general errors, chat, names or account details
+	Select-String -LiteralPath $log -Pattern 'Side-loading plugin', 'PluginManager - Plugin RaccoonPlugin', 'PluginManager - Loaded plugin RaccoonPlugin', 'c\.f\.raccoon\.' |
+		ForEach-Object { $_.Line } | Set-Content -Encoding UTF8 (Join-Path $run 'client-log-excerpt.txt')
+}
+
+# ------------------------------------------------------------------ steps
+
 function Invoke-SelfCheck {
 	$m = Read-Manifest
 	$bad = Test-KitIntegrity $m
@@ -215,116 +373,123 @@ function Invoke-SelfCheck {
 	Say "  official JAR  $($m.official.sha256)  $($m.official.bytes) bytes"
 	Say "  isolated home $IsoHome"
 	Say "  isolated temp $IsoTmp"
-	Say "  your normal RuneLite folder (never used): $RealRuneLite"
-	if ($bad.Count -gt 0) { $bad | ForEach-Object { Say "  INTEGRITY $_" Red }; throw "Kit integrity check failed: download the kit again." }
-	Say "Kit integrity: all $($m.files.Count) files match the manifest." Green
+	if ($bad.Count -gt 0) { $bad | Select-Object -First 20 | ForEach-Object { Say "  INTEGRITY $_" Red }; throw "Kit integrity check failed: download the kit again." }
+	Say "Kit integrity: all $($m.files.Count) listed files match and nothing unlisted is present." Green
+	if (Test-Latched) { Say "This kit has stopped itself (KIT-STOPPED.txt); client steps are disabled." Red }
 	return $m
 }
 
+function Invoke-Guarded([scriptblock]$step) {
+	if (Test-Latched) {
+		Say "The kit stopped itself earlier (KIT-STOPPED.txt). Client steps are disabled; send the file and receipts to the reviewer." Red
+		return 1
+	}
+	try { return (& $step) }
+	catch { Say "Problem: $($_.Exception.Message)" Red; return 1 }
+}
+
 function Invoke-R1 {
-	$m = Invoke-SelfCheck
-	$run = New-RunDir 'R1'
-	Copy-Item (Join-Path $Kit 'fixtures\runelite-plugin.properties') $run
-	Invoke-Isolated $run {
-		Push-Location $run
-		try { & $Java (Get-JvmArgs $m $run) -cp "$ClientLib\*;$IsoLib\*;$DevLib\*" com.feralenterprises.raccoon.playtest.R1Runner | Out-Host }
-		finally { Pop-Location }
-	}
-	return (Invoke-Evaluate $run @('R1', (Get-LatestReceipt $run 'R1')))
-}
-
-function Invoke-R2 {
-	$m = Invoke-SelfCheck
-	$run = New-RunDir 'R2'
-	Say "R2: the test client opens, reaches the login screen, runs the replay on the client thread, then closes itself. Do not log in." Cyan
-	Invoke-Isolated $run {
-		$argList = @(Get-JvmArgs $m $run) + @('-Draccoon.playtest.mode=R2', '-Draccoon.playtest.exitAfterR2=true',
-			'-cp', "$ClientLib\*;$IsoLib\*;$DevLib\*", 'com.feralenterprises.raccoon.playtest.PlaytestClient', '--developer-mode', '--debug')
-		# the client closes itself after the replay; 10 minutes is the limit if it cannot reach the login screen
-		[void](Start-Client $argList $run 600 $null $null)
-	}
-	return (Invoke-Evaluate $run @('R2', (Get-LatestReceipt $run 'R2')))
-}
-
-function Invoke-R3 {
-	$m = Invoke-SelfCheck
-	$run = New-RunDir 'R3'
-	Get-Content (Join-Path $Kit 'R3-CHECKLIST.txt') | ForEach-Object { Say $_ Cyan }
-	if (-not $NonInteractive) { Read-Host "Press Enter to open the test client" | Out-Null }
-	Invoke-Isolated $run {
-		Push-Location $run
-		try {
-			& $Java (Get-JvmArgs $m $run) '-Draccoon.playtest.mode=R3' `
-				-cp "$ClientLib\*;$IsoLib\*;$DevLib\*" com.feralenterprises.raccoon.playtest.PlaytestClient --developer-mode --debug | Out-Host
+	return (Invoke-Guarded {
+		$m = Invoke-SelfCheck
+		$run = New-RunDir 'R1'
+		Copy-Item (Join-Path $Kit 'fixtures\runelite-plugin.properties') $run
+		$cp = Get-KitClasspath $m @('lib\client', 'lib\isolation', 'lib\dev')
+		$iso = Invoke-Isolated $run {
+			Push-Location $run
+			try { & $Java (Get-JvmArgs $m $run) -cp $cp com.feralenterprises.raccoon.playtest.R1Runner | Out-Host }
+			finally { Pop-Location }
 		}
-		finally { Pop-Location }
-	}
-	return (Invoke-Evaluate $run @('R3', (Get-LatestReceipt $run 'R3')))
+		$code = Invoke-Evaluate $run @('R1', (Get-LatestReceipt $run 'R1'))
+		if (-not $iso) { return 1 }
+		return $code
+	})
 }
 
-function Initialize-Sideload($m, [string]$run) {
-	$side = Join-Path $IsoHome '.runelite\sideloaded-plugins'
-	New-Item -ItemType Directory -Force -Path $side | Out-Null
-	Get-ChildItem -LiteralPath $side -Force | Remove-Item -Force -Recurse
-	Copy-Item $Official (Join-Path $side 'project-raccoon.jar')
-	$h = (Get-FileHash (Join-Path $side 'project-raccoon.jar') -Algorithm SHA256).Hash.ToLowerInvariant()
-	if ($h -ne $m.official.sha256) { throw "Sideloaded JAR hash $h does not match the retained official JAR." }
-	$logs = Join-Path $IsoHome '.runelite\logs'
-	$log = Join-Path $logs 'client.log'
-	if (Test-Path $log) { Move-Item $log (Join-Path $logs ("client-before-" + (Split-Path $run -Leaf) + ".log")) }
-	return $log
+function Invoke-ClientStep([string]$step, [string]$checklist, [int]$timeout) {
+	return (Invoke-Guarded {
+		$m = Invoke-SelfCheck
+		$run = New-RunDir $step
+		if ($checklist) {
+			Get-Content (Join-Path $Kit $checklist) | ForEach-Object { Say $_ Cyan }
+			if (-not $NonInteractive) { Read-Host "Press Enter to open the test client" | Out-Null }
+		}
+		Clear-SideloadDir
+		$log = Set-AsideClientLog $run
+		$cp = Get-KitClasspath $m @('lib\client', 'lib\isolation', 'lib\dev')
+		$extra = @("-Draccoon.playtest.mode=$step")
+		if ($step -eq 'R2') { $extra += '-Draccoon.playtest.exitAfterR2=true' }
+		$iso = Invoke-Isolated $run {
+			$argList = @(Get-JvmArgs $m $run) + $extra + @('-cp', $cp, 'com.feralenterprises.raccoon.playtest.PlaytestClient', '--developer-mode', '--debug')
+			[void](Start-Client $argList $run $timeout $null $null)
+		}
+		$code = Invoke-Evaluate $run @($step, (Get-LatestReceipt $run $step))
+		if (-not (Test-NoSideloadInLog $log)) {
+			Say "FAIL: a plugin was side-loaded into the $step client; only the candidate and the witness may run there." Red
+			return 1
+		}
+		if (-not $iso) { return 1 }
+		return $code
+	})
 }
 
-function Save-LogExcerpt([string]$log, [string]$run) {
-	if (-not (Test-Path $log)) { return }
-	# only plugin-loading, Raccoon and problem lines: no chat, names or account details
-	Select-String -LiteralPath $log -Pattern 'side-?load', 'Raccoon', 'raccoon', 'PluginManager', ' ERROR ', ' WARN ' |
-		ForEach-Object { $_.Line } | Set-Content -Encoding UTF8 (Join-Path $run 'client-log-excerpt.txt')
-}
+function Invoke-R2 { return (Invoke-ClientStep 'R2' $null 600) }
+
+function Invoke-R3 { return (Invoke-ClientStep 'R3' 'R3-CHECKLIST.txt' 14400) }
 
 function Invoke-R4 {
-	$m = Invoke-SelfCheck
-	$run = New-RunDir 'R4'
-	Get-Content (Join-Path $Kit 'R4-CHECKLIST.txt') | ForEach-Object { Say $_ Cyan }
-	if (-not $NonInteractive) { Read-Host "Press Enter to open the client with the official JAR" | Out-Null }
-	$log = $null
-	Invoke-Isolated $run {
-		$script:log = Initialize-Sideload $m $run
-		# no Raccoon classes on this classpath: only the pinned RuneLite client; the plugin comes
-		# solely from the side-loaded official JAR
-		& $Java (Get-JvmArgs $m $run) -cp "$ClientLib\*;$IsoLib\*" net.runelite.client.RuneLite --developer-mode --debug | Out-Host
-	}
-	$log = $script:log
-	Save-LogExcerpt $log $run
-	$side = Join-Path $IsoHome '.runelite\sideloaded-plugins\project-raccoon.jar'
-	return (Invoke-Evaluate $run @('R4', $log, $side, $m.official.sha256, "$ClientLib;$IsoLib"))
+	return (Invoke-Guarded {
+		$m = Invoke-SelfCheck
+		$run = New-RunDir 'R4'
+		Get-Content (Join-Path $Kit 'R4-CHECKLIST.txt') | ForEach-Object { Say $_ Cyan }
+		if (-not $NonInteractive) { Read-Host "Press Enter to open the client with the official JAR" | Out-Null }
+		$log = Initialize-Sideload $m $run
+		# no Raccoon classes on this classpath: only the pinned RuneLite client (and the kit's
+		# preferences isolation); the plugin comes solely from the side-loaded official JAR
+		$cp = Get-KitClasspath $m @('lib\client', 'lib\isolation')
+		$script:clientExit = $null
+		$iso = Invoke-Isolated $run {
+			& $Java (Get-JvmArgs $m $run) -cp $cp net.runelite.client.RuneLite --developer-mode --debug | Out-Host
+			$script:clientExit = $LASTEXITCODE
+		}
+		Save-LogExcerpt $log $run
+		$code = Invoke-Evaluate $run @('R4', $log, (Join-Path $Sideload 'project-raccoon.jar'), $m.official.sha256,
+			"$(Join-Path $Kit 'lib\client');$(Join-Path $Kit 'lib\isolation')", "$script:clientExit")
+		if (-not $iso) { return 1 }
+		return $code
+	})
 }
 
 function Invoke-Smoke {
 	# CI automation: the R4 launch path unattended, for a limited time. Not an R4 receipt.
-	$m = Invoke-SelfCheck
-	$run = New-RunDir 'Smoke'
-	$log = $null
-	Invoke-Isolated $run {
-		$script:log = Initialize-Sideload $m $run
-		$argList = @(Get-JvmArgs $m $run) + @('-cp', "$ClientLib\*;$IsoLib\*", 'net.runelite.client.RuneLite', '--developer-mode', '--debug')
-		[void](Start-Client $argList $run $SmokeSeconds $script:log 'Project Raccoon started')
-	}
-	$log = $script:log
-	Save-LogExcerpt $log $run
-	$side = Join-Path $IsoHome '.runelite\sideloaded-plugins\project-raccoon.jar'
-	return (Invoke-Evaluate $run @('LaunchPath', $log, $side, $m.official.sha256, "$ClientLib;$IsoLib"))
+	return (Invoke-Guarded {
+		$m = Invoke-SelfCheck
+		$run = New-RunDir 'Smoke'
+		$log = Initialize-Sideload $m $run
+		$cp = Get-KitClasspath $m @('lib\client', 'lib\isolation')
+		$iso = Invoke-Isolated $run {
+			$argList = @(Get-JvmArgs $m $run) + @('-cp', $cp, 'net.runelite.client.RuneLite', '--developer-mode', '--debug')
+			[void](Start-Client $argList $run $SmokeSeconds $log 'Project Raccoon started')
+		}
+		Save-LogExcerpt $log $run
+		$code = Invoke-Evaluate $run @('LaunchPath', $log, (Join-Path $Sideload 'project-raccoon.jar'), $m.official.sha256,
+			"$(Join-Path $Kit 'lib\client');$(Join-Path $Kit 'lib\isolation')")
+		if (-not $iso) { return 1 }
+		return $code
+	})
 }
 
 function Invoke-Collect {
 	if (-not (Test-Path $Receipts)) { Say "No receipts yet."; return 2 }
+	Assert-NoReparseInside $Receipts
 	$stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')
 	$sums = Join-Path $Receipts 'SHA256SUMS.txt'
 	Get-ChildItem -LiteralPath $Receipts -Recurse -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | ForEach-Object {
 		'{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.FullName.Substring($Receipts.Length + 1)
 	} | Set-Content -Encoding UTF8 $sums
+	$items = @(Join-Path $Receipts '*')
+	if (Test-Latched) { $items += $Latch }
 	$zip = Join-Path $Kit "raccoon-receipts-$stamp.zip"
-	Compress-Archive -Path (Join-Path $Receipts '*') -DestinationPath $zip
+	Compress-Archive -Path $items -DestinationPath $zip
 	Say "Receipts saved to $zip - send this file to the reviewer." Green
 	return 0
 }
@@ -334,7 +499,11 @@ function Invoke-Reset {
 		$ok = Read-Host "Delete the kit's isolated RuneLite home and temp folders (this signs you out of the test client only)? Type YES"
 		if ($ok -ne 'YES') { Say "Nothing deleted."; return 0 }
 	}
-	foreach ($d in @($IsoHome, $IsoTmp)) { if (Test-Path $d) { Remove-Item -LiteralPath $d -Recurse -Force } }
+	try {
+		foreach ($d in @($IsoHome, $IsoTmp)) { Assert-NoReparseInside $d }
+		foreach ($d in @($IsoHome, $IsoTmp)) { if (Test-Path -LiteralPath $d) { Remove-KitContents $d; Remove-Item -LiteralPath $d -Force -Recurse } }
+	}
+	catch { Say "Reset stopped: $($_.Exception.Message)" Red; return 1 }
 	Say "Isolated folders deleted. Receipts were kept." Green
 	return 0
 }
@@ -343,6 +512,7 @@ function Show-Menu {
 	while ($true) {
 		Say ""
 		Say "Project Raccoon playtest kit" White
+		if (Test-Latched) { Say "  (stopped after a failed safety check: only 1 and 6 are available)" Red }
 		Say "  1  Check the kit (start here)"
 		Say "  2  R1 - automatic regression replay (about 1 minute, no game)"
 		Say "  3  R2 - automatic client replay (client opens and closes itself, no login)"
@@ -365,7 +535,7 @@ function Show-Menu {
 				default { Say "Please type a number from the list." Yellow }
 			}
 		}
-		catch { Say "Problem: $($_.Exception.Message)" Red; Say "Nothing was changed outside this folder. Send a screenshot of this window to the reviewer." Yellow }
+		catch { Say "Problem: $($_.Exception.Message)" Red; Say "Stop here and send a screenshot of this window to the reviewer." Yellow }
 	}
 }
 

@@ -1,7 +1,8 @@
 # FR-006 — Windows playtest kit (preparation for review)
 
-**Status: prepared for Solis review. No owner live test is requested until the launch path,
-isolation, plan and evidence package below are reviewed.** Candidate: source
+**Status: Windows preparation evidence accepted by Solis (review of `a0ef3e4c`); owner login HOLD.
+This revision applies only the bounded launcher-safety and receipt-correctness repairs from that
+review; no owner test is requested.** Candidate: source
 `aefb1d79f680ef2c184e24b82e487db08d05c879` (FR-005 accepted), retained official JAR artifact
 `15168762052` (76,270 B, SHA-256 `5eb3405a5be817340a626f4625859f47ec9591afc10e792322dd290d3b456bd5`).
 Requirements are restated in our own words; the private handoff is not published.
@@ -59,12 +60,31 @@ fixtures\runelite-plugin.properties
   `<kit>\home` and menu option 7 deletes it. No `credentials.properties` is created or copied.
 - Receipts record paths with the kit folder and profile folder replaced (`<kit>`, `%USERPROFILE%`).
 
+### Fail-closed behaviour (review repairs)
+
+- A watched location that changed, or a check that could not be completed (any read error while
+  snapshotting), fails the step and writes `KIT-STOPPED.txt`; every later client launch refuses.
+  Only the reviewer clears it (by replacing the kit). The evaluator's verdict cannot override it.
+- Java preferences are compared by every key, value name, kind and data, not by key count.
+- Integrity covers every file present (unlisted files fail), and every classpath is the explicit
+  list of manifest JARs (no `dir\*` wildcards), so an added JAR is never loaded.
+- R2/R3 empty the side-load folder first and fail if the session log shows any side-loaded
+  plugin; R4 empties it and places only the hash-checked official JAR.
+- Every delete, move and side-load write refuses paths outside the kit and any junction, symbolic
+  link or reparse point on the path or inside a folder being deleted (the kit should be
+  extracted to an ordinary folder such as `C:\RaccoonPlaytest`).
+- Messages state what was checked; there is no unconditional reassurance.
+- The R4 log excerpt keeps only side-load, plugin-manager Raccoon and Raccoon logger lines; error
+  lines are counted and named by logger, never echoed into receipts.
+
 ## 4. Exact commands (what the menu runs)
 
 ```
 SelfCheck  every manifest file re-hashed; official JAR and dev JAR identities shown
+           (-cp is always the explicit list of manifest JARs in the named folders; shown here by folder)
 R1         runtime\bin\java.exe -ea -Xmx1024m -Duser.home=<kit>\home -Djava.io.tmpdir=<kit>\tmp
-             -Draccoon.playtest.receipts=<run> -cp "lib\client\*;lib\dev\*"
+             -Djava.util.prefs.PreferencesFactory=playtest.isolation.KitPreferencesFactory
+             -Draccoon.playtest.receipts=<run> -cp "lib\client\*;lib\isolation\*;lib\dev\*"
              com.feralenterprises.raccoon.playtest.R1Runner                (working dir <run>)
 R2         ... -Draccoon.playtest.mode=R2 -Draccoon.playtest.exitAfterR2=true -cp "lib\client\*;lib\dev\*"
              com.feralenterprises.raccoon.playtest.PlaytestClient --developer-mode --debug
@@ -86,20 +106,27 @@ the verdict), `isolation.json`, `verdicts.txt`, and for R4 a filtered `client-lo
 **BLOCKED** (required genuine evidence missing), **NOT_OBSERVED** (optional), **REPORTED**
 (informational). Missing evidence is never PASS; CI proves an empty R3 receipt is BLOCKED.
 
-| Receipt | Criteria (paraphrased) | Evidence | Verdict rule |
-|---|---|---|---|
-| **R1** | Complete deterministic regression replay | all 20 permanent suites in a plain JVM on the test machine | PASS only with every suite run, 0 failures, 0 skipped |
-| **R2** | Native adapter replay, synthetic fixtures, actual client thread | genuine client at the login screen; the witness runs the 8 adapter suites (incl. I01, I02, ordinary/observed-transition KC, performance) inside `ClientThread.invokeLater`; `client.isClientThread()` recorded | PASS only if all pass on the client thread and the performance report passes |
-| **R3** | Genuine lifecycle, bank capture, failed revalidation, Brutus KC | witness subscribed to the production views (same singletons, checked) | each item below PASS only when genuinely observed |
-| **R4** | Exact official JAR starts and stops twice; no fixtures or launcher classes in it | client log, side-loaded JAR hash, JAR and classpath scans | started ≥2 and stopped ≥2 in order, side-load line, no plugin errors |
-| **I03** (interpretation, §8) | The exact retained official JAR runs in the genuine client | R4: identity + side-load + start + clean classpath | PASS only with all four |
+| Receipt | Criteria (paraphrased from the governing handoff, as clarified in review) | Verdict rule |
+|---|---|---|
+| **R1** | Complete deterministic regression replay; the owner-machine run is the receipt, CI runs are preparation | every suite run, 0 failures, 0 skipped |
+| **R2** | Native adapter replay, synthetic fixtures, actual client thread | all adapter suites pass on the client thread, performance passes, no side-loaded plugin |
+| **R3** | Genuine lifecycle, bank capture, failed revalidation, Brutus KC | each item below PASS only when genuinely observed, otherwise BLOCKED |
+| **R4** | Exact official JAR: two complete alternating cycles (start, stop, start, stop; plugin-list toggles accepted) and a clean client shutdown; no fixtures or launcher classes in the artifact | started = stopped ≥ 2 in order, client exit code 0, side-load line, no plugin errors |
+| **I03** | The exact official JAR loads and is disabled in the genuine client, with a clean artifact and classpath | identity + side-load + start + stop + 0 Raccoon classes elsewhere + no errors |
 
-R3 items: shared instances; genuine login (ACTIVE, publishable); verified same-login hop
-(SUSPENDED → ACTIVE, same login, new epoch); failed revalidation (retired, e.g. LOGOUT, then a new
-login, old data not restored); bank QUALIFIED_CURRENT; revocation on close; fresh streak on
-reopen; Brutus line type (GAMEMESSAGE or SPAM, the FR-004 native-line question), zero-delta
-baseline, gain equal to the count increase; native timings. Optional: bank PIN, K05 baseline after
-a hop.
+R3 items: shared instances; genuine login; **late enable** (Raccoon off at login, enabled while
+logged in, then a fresh identity read); **disable/re-enable** while logged in (a new login,
+nothing restored); verified same-login hop (new epoch); **failed revalidation** = a genuine
+failed read while the bank is open, after qualification, revoked in the same record and
+re-qualified only through a fresh streak (logout does **not** count); **two bank opens** (open,
+qualify, close with revocation, reopen, fresh streak, re-qualify); **tab witness recorded per
+read** (known/unknown counts; qualification without any known-witness read fails); **two
+consenting identities** (two run-local account ordinals) with **no carry-over** of bank or KC
+data across any login change; Brutus line type; **two consecutive genuine counts +1 in the same
+authenticated epoch adding exactly 1**; account-hash availability recorded as a boolean only
+(no hash is ever recorded); native timings. Optional: bank PIN. Genuine-tick timing is an upper
+bound: under the limit it is a conservative PASS, over the limit BLOCKED (not attributable to
+the plugin without measurement).
 
 **The witness never drives a production input and never manufactures game events.** It only
 reads views and subscriptions, brackets genuine events with the highest and lowest event-bus
@@ -140,28 +167,23 @@ tests, 0 skipped); R2 attempt in the genuine client PASS (66 adapter tests on th
 at the login screen; event callback p95 ≈0.003–0.005 ms, bank capture p95 ≈1.8–1.9 ms);
 launch path PASS (official JAR side-loaded and started); isolation PASS for every step.
 
-## 9. Decisions and risks for review
+## 9. Review decisions (Solis, review of `a0ef3e4c`) and remaining items
 
-1. **I03.** Read here as "the exact retained official JAR loads and runs in the genuine client",
-   evidenced in R4. If the governing definition differs, the evaluator criteria change, not the
-   kit.
-2. **"Failed revalidation" (R3).** Evidenced by a genuine logout and new login (the held login is
-   retired and never restored; the next Brutus count baselines) and by bank revocation and fresh
-   streak. A genuine hop that fails continuity (for example over 120 s) cannot be produced safely
-   on demand; it stays covered by A04 regressions, not claimed natively.
-3. **R1 location.** The kit runs R1 on the owner's machine; CI also runs it on a Windows runner
-   (preparation evidence). Which run is the R1 receipt is Solis's choice.
-4. **Genuine tick timing is an upper bound** (other core plugins share priority 0); the exact
-   production callback cost natively is the R2 replay.
-5. **R4 toggling.** Start/stop twice is done in the plugin list (startup at client start, then
-   off/on/off); a second client launch is an alternative if preferred.
-6. **Jagex accounts.** The developer client's Jagex account panel is used (pinned-client fact
-   checked in CI); a non-Jagex account types its details. Sign-in data stays in the kit.
-7. **CI client runs** (R2 attempt and R4 launch path on a Windows runner) ran successfully, but
-   they are preparation evidence only, not receipts.
-8. **Jagex sign-in browser.** Whether the developer Jagex auth panel opens the system browser
-   (outside the kit) was not verified; any browser sign-in state would live in the owner's
-   browser, not in RuneLite. To confirm during review or the first owner session.
-9. **Not yet exercised anywhere:** R3 and R4 (they need a person and a genuine account), the
-   witness's R3 observation path in a logged-in client, and Windows PowerShell behaviour on the
-   owner's machine (CI used the same Windows PowerShell 5.1).
+Applied: I03 = load and disable; R3 failed revalidation = genuine open-bank failed read after
+qualification (not logout); added late enable, disable/re-enable, two consenting identities,
+per-read tab witness, two distinct bank opens with a fresh streak, consecutive +1 in one epoch,
+hash availability as a boolean only; R4 = two complete cycles plus clean shutdown (toggles
+accepted); R1 owner replay preferred (CI is preparation); upper-bound tick rule as above.
+
+Regressions (permanent, red at `de1bedc7`/`be24b4de`, green on the repair): `EvaluateTest` (15:
+the confirmed false-PASS paths and genuine-shaped positives, kit CI job `kit-tests`) and
+`playtest/tests/Launcher.Tests.ps1` (isolation latch, incomplete check, preference values,
+unlisted files and classpaths, residual side-load, reparse points, no unconditional
+reassurance; Windows job).
+
+Remaining: owner login HOLD; R3/R4/I03 receipts need the owner. Whether a genuine failed bank
+read can be produced on demand is not known; if it is not observed, R3 failed revalidation stays
+BLOCKED. The Jagex sign-in path of the developer client is reported from the pinned client in
+CI (classes and calls, see the workflow's client facts) and still needs confirmation in the
+first owner session. The official packager's network failure on the kit-branch head is
+unrelated to the retained candidate JAR, which is not rebuilt.

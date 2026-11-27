@@ -107,6 +107,13 @@ jobs:
           javap -c -p -constants -cp "$cp" net.runelite.client.RuneLite | grep -E 'RUNELITE_DIR|String user\.home|String \.runelite' | head -n 8
           echo "--- EventBus programmatic registration (used by the witness)"
           javap -cp "$cp" net.runelite.client.eventbus.EventBus | grep -E 'register|unregister'
+          echo "--- Jagex sign-in path (what the developer client's Jagex account panel uses)"
+          for c in net.runelite.client.plugins.jagexauth.JagexAuthPlugin net.runelite.client.plugins.jagexauth.JagexAuthPanel net.runelite.client.rs.auth.JagexAuthService net.runelite.client.rs.auth.JagexAuthClient; do
+            echo "[$c]"
+            javap -c -p -constants -cp "$cp" "$c" | grep -oE 'LinkBrowser[.a-zA-Z]*|java/awt/Desktop[.a-zA-Z]*|com/sun/net/httpserver/[A-Za-z]*|String (https?://|localhost)[^ ]*|ServerSocket|JCEF|WebView|JFrame|JDialog' | sort -u | head -n 12
+          done
+          echo "--- PluginChanged (witness: late enable, disable/re-enable)"
+          javap -cp "$cp" net.runelite.client.events.PluginChanged | grep -E 'getPlugin|isLoaded'
           echo "--- Jagex auth storage"
           for c in net.runelite.client.rs.auth.JagexAuthService net.runelite.client.plugins.jagexauth.JagexAuthPlugin; do
             javap -c -p -constants -cp "$cp" "$c" | grep -E 'RUNELITE_DIR|String [^ ]*(\.json|\.properties|credentials|token)|ConfigManager|setConfiguration' | head -n 8

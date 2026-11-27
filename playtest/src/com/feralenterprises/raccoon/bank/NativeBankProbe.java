@@ -33,7 +33,8 @@ public final class NativeBankProbe
 		BankFrame frame = source.capture(scope, tick);
 		NativeEvaluationProbe.Result e = NativeEvaluationProbe.evaluate(frame);
 		long t1 = System.nanoTime();
-		return new Sample(t1 - t0, e.valid, e.failure, frame.bank().slots().size());
+		return new Sample(t1 - t0, e.valid, e.failure, frame.bank().slots().size(), frame.witness().isKnown(),
+			frame.identityBefore().isVerified() && frame.identityAfter().isVerified());
 	}
 
 	public static final class Sample
@@ -42,13 +43,19 @@ public final class NativeBankProbe
 		public final boolean valid;
 		public final String failure;
 		public final int bankSlots;
+		/** Whether this read's tab witness was known (per read, as the tracker sees it). */
+		public final boolean witnessKnown;
+		/** Whether an identity was readable before and after the read (boolean only; no hash). */
+		public final boolean identityKnown;
 
-		Sample(long nanos, boolean valid, String failure, int bankSlots)
+		Sample(long nanos, boolean valid, String failure, int bankSlots, boolean witnessKnown, boolean identityKnown)
 		{
 			this.nanos = nanos;
 			this.valid = valid;
 			this.failure = failure;
 			this.bankSlots = bankSlots;
+			this.witnessKnown = witnessKnown;
+			this.identityKnown = identityKnown;
 		}
 	}
 }

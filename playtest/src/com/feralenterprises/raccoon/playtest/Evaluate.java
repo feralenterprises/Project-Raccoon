@@ -61,10 +61,10 @@ public final class Evaluate
 				ev.r3(read(Paths.get(args[1])));
 				break;
 			case "R4":
-				ev.r4(Paths.get(args[1]), Paths.get(args[2]), args[3], args[4], false);
+				ev.r4(Paths.get(args[1]), Paths.get(args[2]), args[3], args[4], false, args.length > 5 ? args[5] : null);
 				break;
 			case "LaunchPath":
-				ev.r4(Paths.get(args[1]), Paths.get(args[2]), args[3], args[4], true);
+				ev.r4(Paths.get(args[1]), Paths.get(args[2]), args[3], args[4], true, null);
 				break;
 			default:
 				throw new IllegalArgumentException("unknown step " + step);
@@ -126,97 +126,219 @@ public final class Evaluate
 
 	// ------------------------------------------------------------------ R3
 
+	/** Bank reasons that mean a read or evaluation genuinely failed while the bank was open. */
+	static final java.util.Set<String> FAILED_READ = new java.util.HashSet<>(java.util.Arrays.asList(
+		"VISIBILITY_UNREADABLE", "MISSING_CONTAINER", "READ_FAILURE", "MALFORMED_SLOT", "MALFORMED_QUANTITY",
+		"UNREADABLE_DEFINITION", "OVERFLOW", "WITNESS_EXCEEDS_SLOTS", "CARRIED_UNREADABLE", "CONTAINER_TOO_LARGE",
+		"ITEMS_NOT_READY", "RETRY_LIMIT"));
+
 	private void r3(List<Map<String, Object>> ev)
 	{
 		Map<String, Object> shared = last(ev, "witness.shared");
 		row("R3.sharedInstances", shared != null && Boolean.TRUE.equals(shared.get("shared")) ? "PASS" : "BLOCKED",
 			shared == null ? "no record" : String.valueOf(shared.get("detail")));
+		lifecycle(ev);
+		bank(ev);
+		identities(ev);
+		brutus(ev);
+		timings(ev);
+	}
 
-		List<Map<String, Object>> acct = all(ev, "account");
+	private void lifecycle(List<Map<String, Object>> ev)
+	{
 		boolean login = false;
 		boolean hop = false;
-		boolean failedRevalidation = false;
 		Long activeLogin = null;
 		Long activeEpoch = null;
-		boolean suspendedSinceActive = false;
-		Long retiredLogin = null;
-		String retireReason = null;
-		long hopAtMono = -1;
-		for (Map<String, Object> a : acct)
+		boolean suspended = false;
+		// plugin toggles: late enable (off at login, enabled while logged in) and disable/re-enable
+		boolean lateEnable = false;
+		boolean disableReenable = false;
+		String pending = null;
+		Long loginBeforeDisable = null;
+		boolean offWhileNotLoggedIn = false;
+		int known = 0;
+		int unknown = 0;
+		for (Map<String, Object> e : ev)
 		{
-			String state = String.valueOf(a.get("state"));
-			boolean pub = Boolean.TRUE.equals(a.get("publishable"));
-			Long lg = asLong(a.get("login"));
-			Long ep = asLong(a.get("epoch"));
-			if ("ACTIVE".equals(state) && pub)
+			String type = String.valueOf(e.get("type"));
+			if ("raccoonPlugin".equals(type))
+			{
+				boolean enabled = Boolean.TRUE.equals(e.get("enabled"));
+				boolean loggedIn = "LOGGED_IN".equals(e.get("gameState"));
+				if (!enabled)
+				{
+					offWhileNotLoggedIn = !loggedIn;
+					pending = loggedIn ? "disabledLoggedIn" : null;
+					loginBeforeDisable = loggedIn ? activeLogin : null;
+				}
+				else if (loggedIn)
+				{
+					pending = "disabledLoggedIn".equals(pending) ? "reenable" : offWhileNotLoggedIn ? "late" : null;
+				}
+				continue;
+			}
+			if (!"account".equals(type))
+			{
+				continue;
+			}
+			if (e.get("hashAvailable") != null)
+			{
+				if (Boolean.TRUE.equals(e.get("hashAvailable")))
+				{
+					known++;
+				}
+				else
+				{
+					unknown++;
+				}
+			}
+			String state = String.valueOf(e.get("state"));
+			Long lg = asLong(e.get("login"));
+			Long ep = asLong(e.get("epoch"));
+			if ("ACTIVE".equals(state) && Boolean.TRUE.equals(e.get("publishable")))
 			{
 				login = true;
-				if (suspendedSinceActive && Objects.equals(lg, activeLogin) && !Objects.equals(ep, activeEpoch))
+				if (suspended && Objects.equals(lg, activeLogin) && !Objects.equals(ep, activeEpoch))
 				{
 					hop = true;
-					hopAtMono = asLong(a.get("mono"));
 				}
-				if (retiredLogin != null && !Objects.equals(lg, retiredLogin))
+				if ("late".equals(pending))
 				{
-					failedRevalidation = true;
+					lateEnable = true;
 				}
+				if ("reenable".equals(pending) && !Objects.equals(lg, loginBeforeDisable))
+				{
+					disableReenable = true;
+				}
+				pending = null;
 				activeLogin = lg;
 				activeEpoch = ep;
-				suspendedSinceActive = false;
-				retiredLogin = null;
+				suspended = false;
 			}
 			else if ("SUSPENDED_CONTINUITY".equals(state))
 			{
-				suspendedSinceActive = activeLogin != null;
+				suspended = activeLogin != null;
 			}
 			else if ("RETIRED".equals(state))
 			{
-				String reason = String.valueOf(a.get("lastRetire"));
-				if (activeLogin != null && !"PLUGIN_STOPPED".equals(reason) && !"NONE".equals(reason))
-				{
-					retiredLogin = activeLogin;
-					retireReason = reason;
-				}
-				activeLogin = null;
-				suspendedSinceActive = false;
+				activeLogin = "PLUGIN_STOPPED".equals(String.valueOf(e.get("lastRetire"))) ? activeLogin : null;
+				suspended = false;
 			}
 		}
 		row("R3.genuineLogin", login ? "PASS" : "BLOCKED", login ? "ACTIVE and publishable after a genuine login" : "not observed");
 		row("R3.verifiedHop", hop ? "PASS" : "BLOCKED", hop ? "same login restored in a new epoch" : "no verified same-login hop observed");
-		row("R3.failedRevalidation", failedRevalidation ? "PASS" : "BLOCKED",
-			failedRevalidation ? "retired (" + retireReason + "), next login is a new login" : "no retirement followed by a new login observed");
+		row("R3.lateEnable", lateEnable ? "PASS" : "BLOCKED", lateEnable ? "off at login, enabled while logged in, then a fresh identity read"
+			: "not observed: disable before login, enable after login");
+		row("R3.disableReenable", disableReenable ? "PASS" : "BLOCKED", disableReenable ? "disabled and re-enabled while logged in; a new login, nothing restored"
+			: "not observed");
+		row("R3.identityAvailability", known + unknown > 0 ? "REPORTED" : "BLOCKED",
+			"account hash available on " + known + " reads, unavailable on " + unknown + " (boolean only; no hash recorded)");
+	}
 
-		List<Map<String, Object>> bank = all(ev, "bank");
-		boolean qualified = false;
-		boolean revoked = false;
-		boolean requalified = false;
+	private void bank(List<Map<String, Object>> ev)
+	{
+		boolean qualifiedOpen = false; // qualified, bank still open
+		boolean failedRead = false;
+		boolean failedReadRevoked = false;
+		boolean failedReadFresh = false;
+		String failedReason = null;
+		int opens = 0;
+		boolean twoOpens = false;
+		boolean closedAfterQualified = false;
+		boolean freshAfterClose = false;
 		boolean pin = false;
-		for (Map<String, Object> b : bank)
+		boolean anyQualified = false;
+		boolean awaitFresh = false;
+		String awaitFreshFor = null;
+		boolean wasClosed = true;
+		for (Map<String, Object> b : all(ev, "bank"))
 		{
+			String status = String.valueOf(b.get("status"));
+			String reason = String.valueOf(b.get("reason"));
 			boolean current = Boolean.TRUE.equals(b.get("current"));
-			pin |= "PIN".equals(b.get("reason"));
-			if ("QUALIFIED_CURRENT".equals(b.get("status")))
+			Long streak = asLong(b.get("streak"));
+			pin |= "PIN".equals(reason);
+			boolean closed = "BANK_CLOSED".equals(reason) || "NOT_PUBLISHABLE".equals(reason) || "SCOPE_CHANGED".equals(reason)
+				|| "IDENTITY_CHANGED".equals(reason);
+			if (!closed && wasClosed && !"PIN".equals(reason))
 			{
-				if (revoked)
+				opens++;
+			}
+			wasClosed = closed;
+			if (awaitFresh && streak != null && streak == 1 && !current)
+			{
+				if ("failure".equals(awaitFreshFor))
 				{
-					requalified = true;
+					failedReadFresh = true;
 				}
-				qualified = true;
+				else
+				{
+					freshAfterClose = true;
+				}
+				awaitFresh = false;
+				awaitFreshFor = "requalify-" + awaitFreshFor;
+				continue;
 			}
-			else if (qualified && !current)
+			if ("QUALIFIED_CURRENT".equals(status))
 			{
-				revoked = true;
+				anyQualified = true;
+				if ("requalify-failure".equals(awaitFreshFor) && failedReadFresh)
+				{
+					failedRead = true;
+				}
+				if ("requalify-close".equals(awaitFreshFor) && freshAfterClose && opens >= 2)
+				{
+					twoOpens = true;
+				}
+				awaitFreshFor = null;
+				qualifiedOpen = true;
+				continue;
 			}
+			if (qualifiedOpen && FAILED_READ.contains(reason))
+			{
+				// the first record after qualification with a failed read must already be revoked
+				failedReadRevoked = !current;
+				failedReason = reason;
+				awaitFresh = failedReadRevoked;
+				awaitFreshFor = "failure";
+			}
+			else if (qualifiedOpen && "BANK_CLOSED".equals(reason))
+			{
+				closedAfterQualified = !current;
+				awaitFresh = closedAfterQualified;
+				awaitFreshFor = "close";
+			}
+			qualifiedOpen = false;
 		}
-		row("R3.bankQualified", qualified ? "PASS" : "BLOCKED", qualified ? "QUALIFIED_CURRENT from a genuine open bank" : "not observed");
-		row("R3.bankRevokedOnClose", revoked ? "PASS" : "BLOCKED", revoked ? "current evidence revoked after qualification" : "not observed");
-		row("R3.bankFreshStreak", requalified ? "PASS" : "BLOCKED", requalified ? "re-qualified only through a fresh streak" : "no reopen observed");
+		row("R3.bankQualified", anyQualified ? "PASS" : "BLOCKED", anyQualified ? "QUALIFIED_CURRENT from a genuine open bank" : "not observed");
+		row("R3.failedRevalidation", failedRead ? "PASS" : "BLOCKED", failedRead
+			? "genuine failed read (" + failedReason + ") while open after qualification: revoked at once, re-qualified only through a fresh streak"
+			: "not observed: needs a genuine failed bank read while the bank is open, after qualification");
+		row("R3.bankTwoOpens", twoOpens ? "PASS" : "BLOCKED", twoOpens ? "qualified, closed (revoked), reopened, fresh streak, re-qualified"
+			: "not observed: open, qualify, close, reopen");
 		row("R3.bankPin", pin ? "PASS" : "NOT_OBSERVED", pin ? "PIN seen, no capture" : "optional: account without a bank PIN or PIN not shown");
 
+		int known = 0;
+		int unknown = 0;
+		int unclassified = 0;
 		List<Long> probe = new ArrayList<>();
 		int invalid = 0;
 		for (Map<String, Object> p : all(ev, "bankProbe"))
 		{
+			Object w = p.get("witnessKnown");
+			if (w == null)
+			{
+				unclassified++;
+			}
+			else if (Boolean.TRUE.equals(w))
+			{
+				known++;
+			}
+			else
+			{
+				unknown++;
+			}
 			if (Boolean.TRUE.equals(p.get("valid")))
 			{
 				probe.add(asLong(p.get("nanos")));
@@ -226,10 +348,120 @@ public final class Evaluate
 				invalid++;
 			}
 		}
+		String witness = "tab witness per read: known=" + known + " unknown=" + unknown + " unclassified=" + unclassified;
+		if (known + unknown + unclassified == 0)
+		{
+			row("R3.bankWitnessPerRead", "BLOCKED", "no genuine open-bank reads");
+		}
+		else if (unclassified > 0 || (anyQualified && known == 0))
+		{
+			row("R3.bankWitnessPerRead", "FAIL", witness + (anyQualified && known == 0 ? "; qualified without any known-witness read" : ""));
+		}
+		else
+		{
+			row("R3.bankWitnessPerRead", "PASS", witness);
+		}
 		perf("R3.perf.bankCapture", probe, 50, BANK_P95_LIMIT, "genuine open bank, read + evaluate; invalid=" + invalid);
+	}
 
-		brutus(ev, hopAtMono);
+	private void identities(List<Map<String, Object>> ev)
+	{
+		java.util.Set<Long> ordinals = new java.util.LinkedHashSet<>();
+		Long currentLogin = null;
+		boolean changed = false;
+		boolean expectBank = false;
+		boolean expectKc = false;
+		boolean carryOver = false;
+		int changes = 0;
+		for (Map<String, Object> e : ev)
+		{
+			String type = String.valueOf(e.get("type"));
+			if ("account".equals(type) && "ACTIVE".equals(e.get("state")) && Boolean.TRUE.equals(e.get("publishable")))
+			{
+				Long ordinal = asLong(e.get("accountOrdinal"));
+				Long lg = asLong(e.get("login"));
+				if (ordinal != null)
+				{
+					ordinals.add(ordinal);
+				}
+				if (currentLogin != null && !Objects.equals(lg, currentLogin))
+				{
+					changes++;
+					expectBank = true;
+					expectKc = true;
+				}
+				currentLogin = lg;
+			}
+			else if ("bank".equals(type) && expectBank)
+			{
+				carryOver |= Boolean.TRUE.equals(e.get("current")) || Boolean.TRUE.equals(e.get("historical"));
+				expectBank = false;
+			}
+			else if ("brutusLine".equals(type) && expectKc && Boolean.TRUE.equals(e.get("typed")))
+			{
+				long before = asLong(e.get("totalBefore")) == null ? 0 : asLong(e.get("totalBefore"));
+				long after = asLong(e.get("totalAfter")) == null ? 0 : asLong(e.get("totalAfter"));
+				carryOver |= before != 0 || after != 0;
+				expectKc = false;
+			}
+		}
+		changed = ordinals.size() >= 2;
+		row("R3.twoIdentities", changed ? "PASS" : "BLOCKED", changed ? ordinals.size() + " distinct consenting accounts (run-local ordinals)"
+			: "not observed: log in with a second consenting account");
+		row("R3.noCarryOver", changes == 0 ? "BLOCKED" : carryOver ? "FAIL" : "PASS",
+			changes == 0 ? "no login change observed" : carryOver ? "bank or KC data carried across a login change" : changes + " login changes, nothing carried over");
+	}
 
+	private void brutus(List<Map<String, Object>> ev)
+	{
+		Map<String, Integer> types = new LinkedHashMap<>();
+		boolean consecutive = false;
+		boolean contradicted = false;
+		Map<String, Object> previous = null;
+		for (Map<String, Object> b : all(ev, "brutusLine"))
+		{
+			types.merge(String.valueOf(b.get("chatType")), 1, Integer::sum);
+			if (!Boolean.TRUE.equals(b.get("typed")))
+			{
+				previous = null;
+				continue;
+			}
+			if (previous != null && Objects.equals(previous.get("login"), b.get("login")) && Objects.equals(previous.get("epoch"), b.get("epoch"))
+				&& b.get("login") != null)
+			{
+				long c1 = count(previous);
+				long c2 = count(b);
+				long before = asLong(b.get("totalBefore")) == null ? 0 : asLong(b.get("totalBefore"));
+				long after = asLong(b.get("totalAfter")) == null ? 0 : asLong(b.get("totalAfter"));
+				boolean revised = asLong(b.get("revisionAfter")) > asLong(b.get("revisionBefore"));
+				if (c2 == c1 + 1)
+				{
+					if (after - before == 1 && revised)
+					{
+						consecutive = true;
+					}
+					else
+					{
+						contradicted = true;
+					}
+				}
+			}
+			previous = b;
+		}
+		row("R3.brutusLineType", types.isEmpty() ? "BLOCKED" : "PASS", types.isEmpty() ? "no genuine Brutus line" : "observed chat types " + types);
+		row("R3.brutusConsecutive", contradicted ? "FAIL" : consecutive ? "PASS" : "BLOCKED", contradicted
+			? "consecutive genuine counts +1 did not add exactly 1"
+			: consecutive ? "consecutive genuine counts +1 in the same authenticated epoch added exactly 1"
+			: "not observed: two consecutive genuine kills in the same epoch");
+	}
+
+	private static long count(Map<String, Object> b)
+	{
+		return Long.parseLong(String.valueOf(b.get("count")).replace(",", ""));
+	}
+
+	private void timings(List<Map<String, Object>> ev)
+	{
 		for (String name : new String[]{"GameTick", "ChatMessage"})
 		{
 			List<Long> t = new ArrayList<>();
@@ -240,55 +472,34 @@ public final class Evaluate
 					t.add(asLong(x.get("nanos")));
 				}
 			}
-			// GameTick is the frequent genuine callback (1,000 ticks = 10 minutes) and gates; genuine
-			// chat is sparse, so it is reported only (the 1,000-sample replay gate is R2)
-			perf("R3.perf." + name, t, 1000, EVENT_P95_LIMIT, "genuine events; bracket includes every subscriber between the witness priorities (upper bound)",
-				"GameTick".equals(name));
+			if ("GameTick".equals(name))
+			{
+				upperBound("R3.perf.GameTick", t);
+			}
+			else
+			{
+				perf("R3.perf." + name, t, 1000, EVENT_P95_LIMIT, "genuine events, upper bound", false);
+			}
 		}
 	}
 
-	private void brutus(List<Map<String, Object>> ev, long hopAtMono)
+	/**
+	 * The genuine tick bracket includes every subscriber between the witness priorities: under the
+	 * limit it is a conservative PASS; over the limit it is not attributable to the plugin.
+	 */
+	private void upperBound(String id, List<Long> samples)
 	{
-		boolean baseline = false;
-		boolean gain = false;
-		boolean consistent = true;
-		boolean afterHopBaseline = false;
-		Long previousCount = null;
-		Map<String, Integer> types = new LinkedHashMap<>();
-		for (Map<String, Object> b : all(ev, "brutusLine"))
+		if (samples.size() < 1000)
 		{
-			types.merge(String.valueOf(b.get("chatType")), 1, Integer::sum);
-			if (!Boolean.TRUE.equals(b.get("typed")))
-			{
-				continue;
-			}
-			long before = asLong(b.get("totalBefore")) == null ? 0 : asLong(b.get("totalBefore"));
-			long after = asLong(b.get("totalAfter")) == null ? 0 : asLong(b.get("totalAfter"));
-			long count = Long.parseLong(String.valueOf(b.get("count")).replace(",", ""));
-			boolean changed = asLong(b.get("revisionAfter")) > asLong(b.get("revisionBefore"));
-			if (changed && after == before)
-			{
-				baseline = true;
-				if (hopAtMono > 0 && asLong(b.get("mono")) > hopAtMono)
-				{
-					afterHopBaseline = true;
-				}
-			}
-			else if (after > before)
-			{
-				gain = true;
-				if (previousCount != null && after - before != count - previousCount)
-				{
-					consistent = false;
-				}
-			}
-			previousCount = count;
+			row(id, "BLOCKED", samples.size() + " samples (< 1000); genuine ticks, upper bound");
+			return;
 		}
-		row("R3.brutusLineType", types.isEmpty() ? "BLOCKED" : "PASS", types.isEmpty() ? "no genuine Brutus line" : "observed chat types " + types);
-		row("R3.brutusBaseline", baseline ? "PASS" : "BLOCKED", baseline ? "first count in the epoch is a zero-delta baseline" : "not observed");
-		row("R3.brutusGain", !gain ? "BLOCKED" : consistent ? "PASS" : "FAIL",
-			!gain ? "no genuine kill after a baseline" : consistent ? "gain equals the count increase" : "gain differs from the count increase");
-		row("R3.brutusAfterHop", afterHopBaseline ? "PASS" : "NOT_OBSERVED", "optional K05: first line after a verified hop baselines");
+		List<Long> s = new ArrayList<>(samples);
+		Collections.sort(s);
+		long p95 = pct(s, 0.95);
+		String d = String.format("n=%d p50=%.3fms p95=%.3fms max=%.3fms (limit %.0fms); upper bound incl. other subscribers",
+			s.size(), ms(pct(s, 0.5)), ms(p95), ms(s.get(s.size() - 1)), ms(EVENT_P95_LIMIT));
+		row(id, p95 <= EVENT_P95_LIMIT ? "PASS" : "BLOCKED", p95 <= EVENT_P95_LIMIT ? d + "; conservative pass" : d + "; over the limit, not attributable to the plugin without measurement");
 	}
 
 	private void perf(String id, List<Long> samples, int minSamples, long limit, String what)
@@ -335,7 +546,7 @@ public final class Evaluate
 	 * R4/I03, or (launchPath) the unattended launch-path check used by CI, which only shows that
 	 * the official JAR side-loads and starts; it is never an R4 receipt.
 	 */
-	private void r4(Path log, Path sideloaded, String expectedSha, String clientLibs, boolean launchPath) throws IOException
+	private void r4(Path log, Path sideloaded, String expectedSha, String clientLibs, boolean launchPath, String exitCode) throws IOException
 	{
 		String p = launchPath ? "LaunchPath." : "R4.";
 		String sha = Files.isRegularFile(sideloaded) ? sha256(Files.readAllBytes(sideloaded)) : "missing";
@@ -394,23 +605,39 @@ public final class Evaluate
 			}
 			if ((l.contains(" ERROR ") || l.contains(" WARN ")) && lower.contains("raccoon") || l.contains("at com.feralenterprises."))
 			{
-				problems.add(l.length() > 200 ? l.substring(0, 200) : l);
+				// never echo the line: it may carry names or chat; record only where it came from
+				problems.add(l.contains("at com.feralenterprises.") ? "stack frame" : logger(l));
 			}
 		}
 		row(p + "sideloaded", sideload ? "PASS" : "BLOCKED", sideload ? "client log shows the official JAR side-loaded" : "no side-load line for project-raccoon");
 		if (launchPath)
 		{
 			row(p + "startedFromOfficialJar", started >= 1 ? "PASS" : "BLOCKED", "started=" + started + " stopped=" + stopped);
-			row(p + "noErrors", problems.isEmpty() ? "PASS" : "FAIL", problems.isEmpty() ? "no plugin errors or stack frames" : problems.get(0));
+			row(p + "noErrors", problems.isEmpty() ? "PASS" : "FAIL", problems.isEmpty() ? "no plugin errors or stack frames"
+				: problems.size() + " lines from " + new java.util.TreeSet<>(problems));
 			return;
 		}
-		boolean twice = started >= 2 && stopped >= 2 && alternating;
+		// two complete alternating cycles: start, stop, start, stop
+		boolean twice = started >= 2 && started == stopped && alternating;
 		row("R4.startStopTwice", twice ? "PASS" : started + stopped == 0 ? "BLOCKED" : "FAIL",
-			"started=" + started + " stopped=" + stopped + (alternating ? "" : " (out of order)"));
-		row("R4.noErrors", problems.isEmpty() ? "PASS" : "FAIL", problems.isEmpty() ? "no plugin errors or stack frames" : problems.size() + " lines, first: " + problems.get(0));
-		boolean i03 = sha.equals(expectedSha) && sideload && started >= 1 && foreign == 0 && problems.isEmpty();
-		row("I03.exactOfficialJar", i03 ? "PASS" : started == 0 ? "BLOCKED" : "FAIL",
-			"the exact retained official JAR (and no other Raccoon classes) loaded and ran in the genuine client");
+			"started=" + started + " stopped=" + stopped + (alternating ? "" : " (out of order)") + (started == stopped ? "" : " (incomplete cycle)"));
+		boolean clean = "0".equals(exitCode);
+		row("R4.cleanShutdown", exitCode == null ? "BLOCKED" : clean ? "PASS" : "FAIL", exitCode == null ? "client exit code not recorded"
+			: "client exit code " + exitCode);
+		row("R4.noErrors", problems.isEmpty() ? "PASS" : "FAIL", problems.isEmpty() ? "no plugin errors or stack frames"
+			: problems.size() + " lines from " + new java.util.TreeSet<>(problems));
+		// I03: the exact official JAR loads and disables in the genuine client, clean artifact and path
+		boolean i03 = sha.equals(expectedSha) && sideload && started >= 1 && stopped >= 1 && foreign == 0 && problems.isEmpty();
+		row("I03.exactOfficialJar", i03 ? "PASS" : started == 0 ? "BLOCKED" : stopped == 0 ? "BLOCKED" : "FAIL",
+			i03 ? "the exact retained official JAR loaded and was disabled cleanly in the genuine client (no other Raccoon classes)"
+				: "needs the exact official JAR to load and then be disabled, without errors");
+	}
+
+	/** The logger name of a log line ("... LEVEL logger - message"), never the message. */
+	private static String logger(String line)
+	{
+		java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?:ERROR|WARN)\\s+(\\S+)\\s+-").matcher(line);
+		return m.find() ? m.group(1) : "unparsed line";
 	}
 
 	private static String officialJarClean(Path jar) throws IOException

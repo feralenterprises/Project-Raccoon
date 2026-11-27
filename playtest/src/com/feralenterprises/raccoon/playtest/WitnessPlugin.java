@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.function.Consumer;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.eventbus.EventBus;
+import net.runelite.client.events.PluginChanged;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.PluginManager;
@@ -100,6 +101,7 @@ public class WitnessPlugin extends Plugin
 		bracket(GameStateChanged.class, this::onGameStateChangedFirst, this::onGameStateChangedLast);
 		bracket(GameTick.class, this::onGameTickFirst, this::onGameTickLast);
 		bracket(ChatMessage.class, this::onChatMessageFirst, this::onChatMessageLast);
+		brackets.add(eventBus.register(PluginChanged.class, this::onPluginChanged, 0f));
 		if ("R3".equals(step))
 		{
 			probe = new NativeBankProbe(client);
@@ -247,10 +249,32 @@ public class WitnessPlugin extends Plugin
 
 	// ------------------------------------------------------------------ R3 observation
 
+	/** Project Raccoon enabled or disabled in the plugin list (late enable, disable/re-enable). */
+	private void onPluginChanged(PluginChanged e)
+	{
+		if (e.getPlugin() instanceof RaccoonPlugin)
+		{
+			receipt.event("raccoonPlugin", "enabled", e.isLoaded(), "gameState", String.valueOf(client.getGameState()));
+		}
+	}
+
+	/** Whether the client currently has an account hash: a boolean only, the hash is never kept. */
+	private boolean hashAvailable()
+	{
+		try
+		{
+			return client.getAccountHash() != -1L;
+		}
+		catch (RuntimeException e)
+		{
+			return false;
+		}
+	}
+
 	private void onAccount(AccountSnapshot s)
 	{
 		AccountScope scope = s.scope().orElse(null);
-		receipt.event("account", "revision", s.revision(), "state", String.valueOf(s.state()), "publishable", s.isPublishable(),
+		receipt.event("account", "hashAvailable", hashAvailable(), "revision", s.revision(), "state", String.valueOf(s.state()), "publishable", s.isPublishable(),
 			"awaitingFreshIdentity", s.isAwaitingFreshIdentity(), "membership", String.valueOf(s.membership()),
 			"lastRetire", String.valueOf(s.lastRetireReason()),
 			"accountOrdinal", scope == null ? null : scope.accountId(), "login", scope == null ? null : scope.loginToken(),
@@ -302,7 +326,7 @@ public class WitnessPlugin extends Plugin
 			if (sample != null)
 			{
 				receipt.event("bankProbe", "nanos", sample.nanos, "valid", sample.valid, "failure", sample.failure,
-					"bankSlots", sample.bankSlots);
+					"bankSlots", sample.bankSlots, "witnessKnown", sample.witnessKnown, "identityKnown", sample.identityKnown);
 			}
 		}
 	}
@@ -332,7 +356,8 @@ public class WitnessPlugin extends Plugin
 		// genuine game line only: the text is the game's own Brutus KC message (no player names)
 		BrutusKcView view = kc.view();
 		OptionalLong after = view.currentLoginTotal();
-		receipt.event("brutusLine", "chatType", String.valueOf(e.getType()), "typed", e.getType() == ChatMessageType.GAMEMESSAGE
+		AccountScope scope = accounts.view().snapshot().scope().orElse(null);
+		receipt.event("brutusLine", "login", scope == null ? null : scope.loginToken(), "epoch", scope == null ? null : scope.epoch(), "chatType", String.valueOf(e.getType()), "typed", e.getType() == ChatMessageType.GAMEMESSAGE
 				|| e.getType() == ChatMessageType.SPAM, "count", m.group(1), "text", text,
 			"revisionBefore", kcRevisionBefore, "revisionAfter", view.revision(),
 			"totalBefore", kcTotalBefore.isPresent() ? kcTotalBefore.getAsLong() : null,

@@ -9,32 +9,36 @@ A self-contained test folder. It checks that the Project Raccoon plugin behaves 
 the real RuneLite client on your PC. You don't need to install anything, use git, or set up any
 development tools.
 
-What it will and will not do
-----------------------------
-- Everything stays inside this folder: its own Java, its own RuneLite test client, its own
+What it is designed to do
+-------------------------
+- Run everything from this folder: its own Java, its own RuneLite test client, its own
   RuneLite settings folder and temp folder.
-- Your normal RuneLite, its settings, plugins and profiles are not used and not changed. The kit
-  checks this before and after every step and tells you the result.
-- The plugin only reads what the game already shows you. It never clicks, moves, types or
-  changes anything in the game, and it sends nothing over the internet.
-- Your password is never seen by the kit. If you sign in with a Jagex account, the sign-in is
-  stored only inside this folder; menu option 7 deletes it. Deleting the folder removes
-  everything.
-- Results ("receipts") record states and timings only: no account names, passwords, chat
-  from players, or bank contents.
+- Leave your normal RuneLite, its settings, plugins and profiles alone. The kit checks the
+  places it could affect before and after every step. If a check finds a change, or cannot be
+  completed, the kit stops itself (it writes KIT-STOPPED.txt) and will not open the test client
+  again. Then send that file and the receipts to the reviewer.
+- The Project Raccoon plugin only reads what the game already shows you. It does not click,
+  move, type or change anything in the game, and it sends nothing over the internet.
+- The kit does not ask for or store your password. When you sign in with a Jagex account, the
+  test client's sign-in is kept inside this folder (menu option 7 deletes it); the reviewer
+  will tell you beforehand whether the sign-in also opens your normal web browser.
+- Results ("receipts") record states, counts and timings. They do not record account names,
+  passwords, player chat, bank contents or your account's identifier.
 
 You need
 --------
 - Windows 10 or 11 (64-bit), about 1.5 GB of free disk space, and an internet connection.
-- Your Old School RuneScape account.
-- About 30 minutes, and access to Brutus for step R3 (two kills).
+- Your Old School RuneScape account, and a second account for one step of R3 (one you own, or
+  one whose owner has agreed to this test).
+- About 40 minutes, and access to Brutus for step R3 (two kills in a row).
 - Close RuneLite and the Jagex Launcher before you start. The kit will remind you.
 
 Steps
 -----
 1. Download the kit zip from the link the reviewer sends you.
-2. Right-click the zip, choose "Extract All...", and extract it to a short path, for example
-   your Desktop.
+2. Right-click the zip, choose "Extract All...", and extract it to C:\RaccoonPlaytest
+   (not to the Desktop or Documents if they are synced by OneDrive; the kit refuses synced or
+   linked folders).
 3. Open the extracted folder and double-click "Raccoon-Playtest.cmd". A blue or black window
    opens with a menu. If Windows asks whether to run it, choose "More info" and "Run anyway"
    (the kit is not signed).
@@ -51,7 +55,8 @@ Steps
 
 If something goes wrong
 -----------------------
-Don't try to fix anything. Take a screenshot of the window and send it to the reviewer.
-Nothing outside this folder will have been changed. "BLOCKED" next to a check means that
-something was not observed (for example no Brutus kill happened); it is not an error on your
-part, and the reviewer will tell you if a step needs repeating.
+Don't try to fix anything. Stop, take a screenshot of the window and send it to the reviewer
+together with the receipts zip (menu option 6) and KIT-STOPPED.txt if it exists.
+"BLOCKED" next to a check means that something was not observed (for example no Brutus kill
+happened); it is not an error on your part, and the reviewer will tell you if a step needs
+repeating.
