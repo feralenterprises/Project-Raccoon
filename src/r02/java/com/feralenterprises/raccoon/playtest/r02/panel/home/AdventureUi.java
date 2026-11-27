@@ -41,7 +41,7 @@ import javax.swing.border.EmptyBorder;
  * appearance text size still scales. Every component reports height-for-width so text wraps instead of clipping.
  */
 public final class AdventureUi {
-	static final Color HEAD = new Color(0xf1d7a5), FEATURE_HEAD = new Color(0x342519), ROW_TITLE = new Color(0xf0dfbd),
+	public static final Color HEAD = new Color(0xf1d7a5), FEATURE_HEAD = new Color(0x342519), ROW_TITLE = new Color(0xf0dfbd),
 		MUTED = new Color(0xc1b19a), END = new Color(0xdfc69c), CHEVRON = new Color(0xd3b681), DETAIL = new Color(0xd4c6ad),
 		DETAIL_RULE = new Color(0x85704d), LINK = new Color(0xe8c477), TEXT_ACTION = new Color(0xc9bda5),
 		CARD_EDGE = new Color(0x8f7148), FEATURE_EDGE = new Color(0xb08c53), HEAD_RULE = new Color(0x9a7950),
@@ -54,10 +54,14 @@ public final class AdventureUi {
 	private AdventureUi() { }
 
 	/** Text style: a framework role (for scaling), a weight and a size relative to the role's base size. */
-	enum Style {
+	public enum Style {
 		HEAD(FontRole.TITLE, Font.BOLD, 1f), FEATURE(FontRole.TITLE, Font.BOLD, 14f / 13f), GOAL(FontRole.TITLE, Font.BOLD, 14f / 13f),
 		ROW(FontRole.SMALL, Font.BOLD, 1f), SMALL(FontRole.SMALL, Font.PLAIN, 1f), TINY(FontRole.QUANTITY, Font.PLAIN, 1f),
-		BUTTON(FontRole.TITLE, Font.BOLD, 1f);
+		BUTTON(FontRole.TITLE, Font.BOLD, 1f),
+		/** Current Activity: hero title 19px, long-name 15px, metric value 20px, unavailable metric 14px, line value 12px, note 12px. */
+		HERO_TITLE(FontRole.TITLE, Font.BOLD, 19f / 13f), HERO_TITLE_LONG(FontRole.TITLE, Font.BOLD, 15f / 13f),
+		METRIC(FontRole.TITLE, Font.BOLD, 20f / 13f), METRIC_UNAVAILABLE(FontRole.TITLE, Font.BOLD, 14f / 13f),
+		VALUE(FontRole.VALUE, Font.BOLD, 1f), NOTE(FontRole.BODY, Font.PLAIN, 1f);
 
 		final FontRole role;
 		final int weight;
@@ -69,7 +73,7 @@ public final class AdventureUi {
 			this.scale = scale;
 		}
 
-		Font font(UiContext ui) {
+		public Font font(UiContext ui) {
 			Font f = ui.font(role);
 			return f.deriveFont(weight, f.getSize2D() * scale);
 		}
@@ -77,26 +81,26 @@ public final class AdventureUi {
 
 	// ------------------------------------------------------------------ painting helpers
 
-	static void tile(Graphics2D g, BufferedImage img, int w, int h, int tile) {
+	public static void tile(Graphics2D g, BufferedImage img, int w, int h, int tile) {
 		if (img == null || tile <= 0) return;
 		int th = Math.max(1, Math.round(tile * img.getHeight() / (float) img.getWidth()));
 		for (int y = 0; y < h; y += th) for (int x = 0; x < w; x += tile) g.drawImage(img, x, y, tile, th, null);
 	}
 
-	static void contain(Graphics2D g, BufferedImage img, int x, int y, int w, int h) {
+	public static void contain(Graphics2D g, BufferedImage img, int x, int y, int w, int h) {
 		if (img == null) return;
 		double s = Math.min(w / (double) img.getWidth(), h / (double) img.getHeight());
 		int dw = (int) Math.round(img.getWidth() * s), dh = (int) Math.round(img.getHeight() * s);
 		g.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh, null);
 	}
 
-	static Graphics2D prepare(Graphics g) {
+	public static Graphics2D prepare(Graphics g) {
 		Graphics2D g2 = Paints.prepare(g);
 		g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 		return g2;
 	}
 
-	static void focusRing(Graphics2D g, JComponent c) {
+	public static void focusRing(Graphics2D g, JComponent c) {
 		if (!c.isFocusOwner()) return;
 		g.setColor(FOCUS);
 		g.setStroke(new BasicStroke(2f));
@@ -104,7 +108,7 @@ public final class AdventureUi {
 	}
 
 	/** Activates on click, Enter or Space; repaints on focus change. */
-	static void activator(JComponent c, Runnable action) {
+	public static void activator(JComponent c, Runnable action) {
 		c.setFocusable(true);
 		c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		c.addMouseListener(new MouseAdapter() {
@@ -124,14 +128,14 @@ public final class AdventureUi {
 	// ------------------------------------------------------------------ text
 
 	/** Wrapping text in a frozen colour; its accessible name is its text. */
-	static class Label extends JComponent implements HeightForWidth {
+	public static class Label extends JComponent implements HeightForWidth {
 		private final UiContext ui;
 		private final Style style;
 		private String text;
 		private Color color;
 		private boolean rule;
 
-		Label(UiContext ui, String text, Style style, Color color) {
+		public Label(UiContext ui, String text, Style style, Color color) {
 			this.ui = ui;
 			this.text = text;
 			this.style = style;
@@ -140,18 +144,18 @@ public final class AdventureUi {
 		}
 
 		/** Frozen {@code .detail-copy}: a 1px rule at the left and 4px indent. */
-		Label detailRule() { rule = true; return this; }
+		public Label detailRule() { rule = true; return this; }
 
-		String text() { return text; }
+		public String text() { return text; }
 
-		void setText(String t) {
+		public void setText(String t) {
 			if (t.equals(text)) return;
 			text = t;
 			revalidate();
 			repaint();
 		}
 
-		void setColor(Color c) { color = c; repaint(); }
+		public void setColor(Color c) { color = c; repaint(); }
 
 		private int indent() { return rule ? 5 : 0; }
 
@@ -583,11 +587,11 @@ public final class AdventureUi {
 	}
 
 	/** Frozen {@code .textaction} / {@code .reason summary}: borderless text button, 11px. */
-	static final class TextAction extends JButton implements HeightForWidth {
+	public static final class TextAction extends JButton implements HeightForWidth {
 		private final UiContext ui;
 		private final Color color;
 
-		TextAction(UiContext ui, String text, Color color) {
+		public TextAction(UiContext ui, String text, Color color) {
 			super(text);
 			this.ui = ui;
 			this.color = color;
@@ -622,15 +626,15 @@ public final class AdventureUi {
 	}
 
 	/** Frozen {@code .meter}: 8px, gold edge, green fill; accessible as a progress bar with value text. */
-	static final class Meter extends JComponent implements HeightForWidth {
+	public static final class Meter extends JComponent implements HeightForWidth {
 		private double fraction;
 		private String valueText = "";
 		private Integer value;
 		private int max;
 
-		Meter() { setOpaque(false); }
+		public Meter() { setOpaque(false); }
 
-		void set(double fraction, Integer value, int max, String valueText) {
+		public void set(double fraction, Integer value, int max, String valueText) {
 			this.fraction = Math.max(0, Math.min(1, fraction));
 			this.value = value;
 			this.max = max;
@@ -638,7 +642,7 @@ public final class AdventureUi {
 			repaint();
 		}
 
-		double fraction() { return fraction; }
+		public double fraction() { return fraction; }
 
 		@Override public int heightForWidth(int width) { return 4 + 10 + 2; }
 

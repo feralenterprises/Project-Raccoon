@@ -1,4 +1,4 @@
-# Lane A (Adventure): Home verification
+# Lane A (Adventure): verification
 
 Base: accepted common framework `6684228b`. Lane A writes only `panel/home/` (and later `panel/activity/`,
 `panel/files/`, `panel/tools/`) plus these tests. No shared, fixture, assembly, host or Lane B files are changed.
@@ -16,8 +16,10 @@ Inputs stay private and outside the repository: the accepted Lane Inputs ZIP (SH
 (its own `SHA256SUMS.txt`, read by the shared `FrozenPackageAssets`). The optional evidence directory receives offscreen
 PNGs, which contain private frozen art: do not publish them. Use `;` classpath separators on Windows.
 
-Host wiring (shared owner): load `HomePanels.registrations(laneInputsZip)` off the EDT and pass them to the existing
-`R02Composition` on the EDT. Home is content-only; the `FULL` environment (header scene, vines, burrow-entrance footer
+Suites: `panel.home.HomeLaneTests`, `panel.activity.ActivityLaneTests` (same arguments).
+
+Host wiring (shared owner): load `AdventurePanels.registrations(laneInputsZip, frozenReview)` off the EDT and pass them
+to the existing `R02Composition` on the EDT. Home is content-only; the `FULL` environment (header scene, vines, burrow-entrance footer
 art) stays with the shared `PageHost`.
 
 Evidence rules covered: official KC only from a verified kill-log observation (C-04, C-10), raw tuna only from a current

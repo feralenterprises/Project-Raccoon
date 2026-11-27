@@ -70,5 +70,8 @@ public final class HomeInputs {
 	/** Loads off the EDT. */
 	public static HomeInputs load(Path laneInputsZip) throws IOException { return new HomeInputs(LaneInputs.open(laneInputsZip)); }
 
+	/** Loads from an already opened (verified) lane-input archive. */
+	public static HomeInputs load(LaneInputs lane) throws IOException { return new HomeInputs(lane); }
+
 	public LaneInputs lane() { return lane; }
 }
