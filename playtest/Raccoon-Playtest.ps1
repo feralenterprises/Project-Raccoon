@@ -40,13 +40,14 @@ $Official = Join-Path $Kit 'official\project-raccoon.jar'
 
 # RuneLite's developer Jagex sign-in (1.13.8 rs/auth/SessionStore) keeps its session file in the
 # isolated .runelite folder, encrypted with a key it stores in Windows Credential Manager under this
-# generic target (machine persistence), outside the kit. The kit watches its presence only (names,
-# never secrets) and never reads it.
+# generic target, outside the kit. The kit watches its presence only (names, never secrets), never
+# reads it and never deletes it: R3 runs only in a dedicated Windows test account, and removing
+# that account removes the key with everything else the sign-in created.
 $CredentialTarget = 'RuneLite SessionStore'
-$CredentialMarker = Join-Path $Kit 'KIT-CREATED-CREDENTIAL.txt'
+$TestAccountPrefix = 'RaccoonTest'
 
 # files the kit itself creates while running; everything else must be in the manifest
-$RuntimeOwned = @('kit-manifest.json', 'KIT-STOPPED.txt', 'KIT-CREATED-CREDENTIAL.txt')
+$RuntimeOwned = @('kit-manifest.json', 'KIT-STOPPED.txt')
 $RuntimeOwnedDirs = @('receipts', 'home', 'tmp')
 
 function Say([string]$text, [string]$color = 'Gray') { Write-Host $text -ForegroundColor $color }
@@ -182,8 +183,36 @@ function Get-SessionStoreCredential {
 	catch { return [pscustomobject]@{ present = $false; complete = $false } }
 }
 
-function Remove-SessionStoreCredential {
-	& cmdkey.exe "/delete:$CredentialTarget" | Out-Null
+# ------------------------------------------------------------------ dedicated test account (R3)
+
+function Get-WindowsAccountFacts {
+	try {
+		$groups = @(& whoami.exe /groups)
+		if ($LASTEXITCODE -ne 0) { throw "whoami failed" }
+		# S-1-5-32-544 = BUILTIN\Administrators; also listed (deny-only) for a non-elevated admin token
+		$admin = @($groups | Where-Object { "$_" -match 'S-1-5-32-544' }).Count -gt 0
+		return [pscustomobject]@{
+			userName = $env:USERNAME
+			isAdministratorsMember = $admin
+			profileRuneLite = (Test-Path -LiteralPath (Join-Path $env:USERPROFILE '.runelite'))
+			localRuneLite = [bool]($env:LOCALAPPDATA -and (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'RuneLite')))
+			complete = $true
+		}
+	}
+	catch {
+		return [pscustomobject]@{ userName = $env:USERNAME; isAdministratorsMember = $true; profileRuneLite = $true; localRuneLite = $true; complete = $false }
+	}
+}
+
+# Reasons R3 may not run in this Windows account (empty = a dedicated standard test account).
+function Test-DedicatedTestAccount($facts) {
+	$reasons = @()
+	if (-not $facts.complete) { $reasons += 'this Windows account could not be checked' ; return ,$reasons }
+	if ("$($facts.userName)" -notlike "$TestAccountPrefix*") { $reasons += "this is not the dedicated Windows test account (its name must start with $TestAccountPrefix)" }
+	if ($facts.isAdministratorsMember) { $reasons += 'this Windows account is an administrator; R3 needs a standard account' }
+	if ($facts.profileRuneLite) { $reasons += 'this Windows account has its own RuneLite folder (.runelite)' }
+	if ($facts.localRuneLite) { $reasons += 'RuneLite is installed in this Windows account' }
+	return ,$reasons
 }
 
 function Get-JavaPrefsDigest {
@@ -343,10 +372,7 @@ function Invoke-Isolated([string]$runDir, [scriptblock]$body, [string[]]$allowCr
 	try { $iso | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $runDir 'isolation.json') }
 	catch { $isolationOk = $false; $ok = $false; Say "The isolation receipt could not be written: $($_.Exception.Message)" Red }
 	if ($isolationOk -and ($expected -contains 'windowsCredential')) {
-		Set-Content -LiteralPath $CredentialMarker -Encoding UTF8 -Value @(
-			"RuneLite created its Jagex sign-in encryption key ('$CredentialTarget') in Windows Credential Manager during $(Split-Path $runDir -Leaf).",
-			"Menu option 7 removes it (only because this kit created it).")
-		Say "Expected: RuneLite created its sign-in encryption key ('$CredentialTarget') in Windows Credential Manager. Menu option 7 removes it." Yellow
+		Say "Expected: RuneLite created its sign-in encryption key ('$CredentialTarget') in this test account's Credential Manager. It is removed when you remove the test account." Yellow
 	}
 	if ($isolationOk) {
 		Say "Isolation check: no unexpected change detected in the watched locations." Green
@@ -447,8 +473,9 @@ function Invoke-SelfCheck {
 	Say "  isolated home $IsoHome"
 	Say "  isolated temp $IsoTmp"
 	$cred = Get-SessionStoreCredential
-	Say ("  Windows Credential Manager '{0}': {1}{2}" -f $CredentialTarget, $(if (-not $cred.complete) { 'unreadable' } elseif ($cred.present) { 'present' } else { 'absent' }),
-		$(if (Test-Path -LiteralPath $CredentialMarker) { ' (created by this kit)' } else { '' }))
+	Say ("  Windows Credential Manager '{0}': {1}" -f $CredentialTarget, $(if (-not $cred.complete) { 'unreadable' } elseif ($cred.present) { 'present' } else { 'absent' }))
+	$acct = Test-DedicatedTestAccount (Get-WindowsAccountFacts)
+	Say ("  Windows account for R3: {0}" -f $(if ($acct.Count -eq 0) { 'dedicated test account (R3 allowed)' } else { 'not the test account (R3 refused; R1, R2, R4 allowed)' }))
 	if ($bad.Count -gt 0) { $bad | Select-Object -First 20 | ForEach-Object { Say "  INTEGRITY $_" Red }; throw "Kit integrity check failed: download the kit again." }
 	Say "Kit integrity: all $($m.files.Count) listed files match and nothing unlisted is present." Green
 	if (Test-Latched) { Say "This kit has stopped itself (KIT-STOPPED.txt); client steps are disabled." Red }
@@ -485,6 +512,17 @@ function Invoke-R1 {
 
 function Invoke-ClientStep([string]$step, [string]$checklist, [int]$timeout) {
 	return (Invoke-Guarded {
+		if ($step -eq 'R3') {
+			# the genuine sign-in runs only in a dedicated standard Windows account: its Credential
+			# Manager, AppData and registry belong to that account and are removed with it
+			$reasons = Test-DedicatedTestAccount (Get-WindowsAccountFacts)
+			if ($reasons.Count -gt 0) {
+				Say "R3 is not allowed in this Windows account:" Red
+				$reasons | ForEach-Object { Say "  - $_" Red }
+				Say "Sign in to Windows as the RaccoonTest account (see READ-ME-FIRST.txt) and run R3 there." Yellow
+				return 2
+			}
+		}
 		$m = Invoke-SelfCheck
 		$run = New-RunDir $step
 		if ($checklist) {
@@ -582,13 +620,10 @@ function Invoke-Reset {
 	}
 	try {
 		foreach ($d in @($IsoHome, $IsoTmp)) { Assert-NoReparseInside $d }
-		if (Test-Path -LiteralPath $CredentialMarker) {
-			# only a key this kit saw RuneLite create is removed; a pre-existing one is never touched
-			Remove-SessionStoreCredential
-			$c = Get-SessionStoreCredential
-			if (-not $c.complete -or $c.present) { throw "the '$CredentialTarget' entry could not be confirmed removed" }
-			Remove-Item -LiteralPath $CredentialMarker -Force
-			Say "Removed the '$CredentialTarget' entry the kit created." Green
+		# the kit never deletes Credential Manager entries (one may be shared); removing the
+		# Windows test account removes the sign-in key with the account
+		if ((Get-SessionStoreCredential).present) {
+			Say "The '$CredentialTarget' entry is left in place. Remove the RaccoonTest Windows account to delete it." Yellow
 		}
 		foreach ($d in @($IsoHome, $IsoTmp)) { if (Test-Path -LiteralPath $d) { Remove-KitContents $d; Remove-Item -LiteralPath $d -Force -Recurse } }
 	}

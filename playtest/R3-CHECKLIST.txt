@@ -1,14 +1,15 @@
 R3 - play and observe (about 20 minutes). The test plugin is designed only to watch; it does not act in the game.
 Only normal worlds. Never hop to PvP, Deadman, Seasonal, Beta or other special worlds for this test.
-You need a second account for step 10: one you own, or one whose owner has agreed to this test.
+Run this only while signed in to Windows as RaccoonTest (see READ-ME-FIRST.txt); the kit refuses
+otherwise. You need a second game account for step 10: one you own, or one whose owner agreed.
 
  1. On the login screen, click the wrench (Configuration) in the right-hand sidebar, search for
     "Project Raccoon" and switch it OFF. Do not touch "Raccoon Playtest Witness".
  2. Sign in. Jagex account: click "Jagex Accounts" in the right-hand sidebar, then
     "Add Jagex Account". A Jagex sign-in window opens (inside the test client, not your web
     browser); sign in there. Then click your character in the panel and log in to the game.
-    RuneLite saves an encryption key named "RuneLite SessionStore" in Windows Credential
-    Manager; the kit expects this and menu option 7 removes it afterwards.
+    RuneLite saves an encryption key named "RuneLite SessionStore" in this test account's
+    Credential Manager; the kit expects this. It goes away when you remove the test account.
     Older (non-Jagex) account: "Use Legacy Account", then type your details on the login screen.
  3. Wait 20 seconds in the game, then switch "Project Raccoon" back ON. Wait 30 seconds.
  4. Open your bank (enter your PIN if asked) and leave it open for at least 1 minute.

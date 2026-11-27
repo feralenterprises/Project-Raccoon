@@ -281,6 +281,44 @@ jobs:
           & (Join-Path $env:RUNNER_TEMP 'kit-run\Raccoon-Playtest.ps1') -Step SelfCheck -NonInteractive
           exit $LASTEXITCODE
 
+      - name: WebView2 storage probe (pinned JagexAuth helper started without signing in)
+        continue-on-error: true
+        timeout-minutes: 6
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $jar = Get-ChildItem (Join-Path $env:RUNNER_TEMP 'kit\lib\client') -Filter 'jagexauth-*.jar' | Select-Object -First 1
+          $probe = Join-Path $env:RUNNER_TEMP 'webview2-probe'
+          $kitTmp = Join-Path $probe 'kit-tmp'
+          New-Item -ItemType Directory -Force -Path $kitTmp | Out-Null
+          # exactly as RuneLite: copied to java.io.tmpdir (the kit's tmp) under runelite_jagexauth<digits>, no extension
+          $exe = Join-Path $kitTmp 'runelite_jagexauth1234567890'
+          $z = [IO.Compression.ZipFile]::OpenRead($jar.FullName)
+          try { [IO.Compression.ZipFileExtensions]::ExtractToFile($z.GetEntry('net/runelite/jagexauth/JagexAuth-Win-amd64.exe'), $exe) } finally { $z.Dispose() }
+          $wv = Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue
+          Write-Host "::notice title=WebView2 runtime::$(if ($wv) { 'installed ' + $wv.pv } else { 'not found in the machine-wide EdgeUpdate key' })"
+          $roots = [ordered]@{ kitTmp = $kitTmp; LOCALAPPDATA = $env:LOCALAPPDATA; APPDATA = $env:APPDATA; TEMP = $env:TEMP; USERPROFILE = $env:USERPROFILE }
+          function Snap($root) { @(Get-ChildItem -LiteralPath $root -Recurse -Depth 4 -Force -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }) }
+          $before = @{}; foreach ($k in $roots.Keys) { $before[$k] = Snap $roots[$k] }
+          $out = Join-Path $probe 'stdout.txt'
+          $p = Start-Process -FilePath $exe -ArgumentList '--prompt=login' -WorkingDirectory $kitTmp -PassThru -RedirectStandardOutput $out -RedirectStandardError (Join-Path $probe 'stderr.txt')
+          Start-Sleep -Seconds 40
+          $children = @(Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $p.Id })
+          Write-Host "::notice title=WebView2 probe::helper running=$(-not $p.HasExited), child processes: $((@($children | ForEach-Object { $_.Name }) | Sort-Object -Unique) -join ', ')"
+          Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'msedgewebview2.exe' -and $_.CommandLine -match 'runelite_jagexauth' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+          foreach ($c in $children) { Stop-Process -Id $c.ProcessId -Force -ErrorAction SilentlyContinue }
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          Start-Sleep -Seconds 3
+          foreach ($k in $roots.Keys) {
+            $new = @(Snap $roots[$k] | Where-Object { $before[$k] -notcontains $_ } | ForEach-Object { $_.Substring($roots[$k].Length) })
+            $top = @($new | ForEach-Object { ($_ -split '\\')[1] } | Sort-Object -Unique)
+            Write-Host "::notice title=WebView2 probe new folders::$k ($($new.Count) new): $($top -join ', ')"
+          }
+          $wvDirs = @(foreach ($k in $roots.Keys) { Get-ChildItem -LiteralPath $roots[$k] -Recurse -Depth 3 -Force -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*.WebView2' -or $_.Name -eq 'EBWebView' } | ForEach-Object { "$k" + $_.FullName.Substring($roots[$k].Length) } })
+          Write-Host "::notice title=WebView2 data folders::$($wvDirs -join ' | ')"
+          # never print helper output (it would carry an id_token after a real sign-in); count lines only
+          Write-Host "::notice title=WebView2 probe output::stdout lines=$(@(Get-Content $out -ErrorAction SilentlyContinue).Count) (content not shown)"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: src

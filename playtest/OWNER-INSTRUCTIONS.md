@@ -20,11 +20,12 @@ What it is designed to do
 - The Project Raccoon plugin only reads what the game already shows you. It does not click,
   move, type or change anything in the game, and it sends nothing over the internet.
 - The kit does not ask for or store your password. You sign in only in Jagex's own sign-in
-  window, which the test client opens (not your normal web browser). The test client keeps the
-  resulting sign-in inside this folder, plus one encryption key that RuneLite stores in Windows
-  Credential Manager under the name "RuneLite SessionStore". The kit expects that key during the
-  play step only, and menu option 7 deletes the folder's sign-in data and that key (only if the
-  kit saw it being created).
+  window, which the test client opens (not your normal web browser).
+- The play step (R3, menu 4) runs only in a separate Windows account made just for this test
+  (see "Before R3" below). Everything the sign-in leaves behind (the test client's sign-in, the
+  sign-in window's browser data and an encryption key RuneLite keeps in Windows Credential
+  Manager) then belongs to that account and disappears when you remove it. The kit never
+  deletes anything from Credential Manager itself.
 - Results ("receipts") record states, counts and timings. They do not record account names,
   passwords, player chat, bank contents or your account's identifier.
 
@@ -55,6 +56,26 @@ Steps
 5. Send the receipts zip to the reviewer.
 6. When the reviewer confirms they have everything, you can choose 7 to delete the test
    client's data, or simply delete the whole folder.
+
+Before R3 (only when the reviewer says R3 may start): a separate Windows test account
+-----------------------------------------------------------------------------------------
+1. In your own account, copy the kit zip to C:\Users\Public\Downloads (every account can
+   read that folder).
+2. Open Settings > Accounts > Other users (Windows 10: Family & other users) > Add account >
+   "I don't have this person's sign-in information" > "Add a user without a Microsoft account".
+   Name it RaccoonTest and give it a password. Leave it as a Standard User (do not make it an
+   administrator).
+3. Sign out (or Switch user) and sign in as RaccoonTest. Windows prepares the account; this can
+   take a minute.
+4. As RaccoonTest: extract the zip from C:\Users\Public\Downloads to C:\RaccoonTest-Kit.
+   Do not install RuneLite or the Jagex Launcher in this account.
+5. Double-click Raccoon-Playtest.cmd, choose 1 (check), then 4 (R3) and follow the checklist.
+   Then choose 6 and copy the receipts zip to C:\Users\Public\Documents.
+6. Sign out of RaccoonTest and back in to your own account. Send the receipts zip from
+   C:\Users\Public\Documents to the reviewer.
+7. When the reviewer confirms they have everything: Settings > Accounts > Other users >
+   RaccoonTest > Remove > "Delete account and data". This deletes the test account's sign-in,
+   browser data and Credential Manager key together.
 
 If something goes wrong
 -----------------------
