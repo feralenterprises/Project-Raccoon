@@ -98,11 +98,17 @@ jobs:
           cj=$(ls build/playtest-kit/kit/lib/client/client-1.13.8*.jar | head -n1)
           cp=$(ls build/playtest-kit/kit/lib/client/*.jar | tr '\n' ':')
           side=$(javap -c -p -constants -cp "$cp" net.runelite.client.plugins.PluginManager | grep -ciE 'sideload|side-load' || true)
-          home=$(javap -c -p -constants -cp "$cp" net.runelite.client.RuneLite | grep -cE '"user\.home"|"\.runelite"' || true)
+          home=$(javap -c -p -constants -cp "$cp" net.runelite.client.RuneLite | grep -cE 'String user\.home|String \.runelite' || true)
           prio=$(javap -cp "$cp" net.runelite.client.eventbus.Subscribe | grep -c 'float priority' || true)
           auth=$(unzip -l "$cj" | grep -ciE 'jagex.*(auth|account)|(auth|account).*jagex' || true)
           echo "::notice title=client facts::sideload references=$side; RUNELITE_DIR from user.home references=$home; Subscribe.priority=$prio; Jagex account/auth classes=$auth"
-          javap -c -p -constants -cp "$cp" net.runelite.client.plugins.PluginManager | grep -iE 'sideload|side-load|developerMode' | head -n 12
+          javap -c -p -constants -cp "$cp" net.runelite.client.plugins.PluginManager | grep -iE 'sideload|side-load|developerMode|RUNELITE_DIR' | head -n 14
+          echo "--- RuneLite data directory"
+          javap -c -p -constants -cp "$cp" net.runelite.client.RuneLite | grep -E 'RUNELITE_DIR|String user\.home|String \.runelite' | head -n 8
+          echo "--- Jagex auth storage"
+          for c in net.runelite.client.rs.auth.JagexAuthService net.runelite.client.plugins.jagexauth.JagexAuthPlugin; do
+            javap -c -p -constants -cp "$cp" "$c" | grep -E 'RUNELITE_DIR|String [^ ]*(\.json|\.properties|credentials|token)|ConfigManager|setConfiguration' | head -n 8
+          done
           unzip -l "$cj" | grep -iE 'jagex.*(auth|account)|(auth|account).*jagex' | head -n 12 || true
           test "$side" -gt 0 && test "$home" -gt 0 && test "$prio" -gt 0
 
