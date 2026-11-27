@@ -186,7 +186,7 @@ final class ActivityModel {
 			replay = true;
 			recordId = rec.id();
 			String unit = rec.unitLabel();
-			Long count = (long) rec.units();
+			Long count = rec.count().hasValue() ? Long.valueOf(rec.count().value()) : null; // unknown count stays unknown
 			// C-11: a Barrows record is a chest count; a record claiming another unit there establishes nothing
 			if (rec.activityKey() != null && rec.activityKey().equals("barrows") && !"chests".equalsIgnoreCase(unit)) {
 				count = null;

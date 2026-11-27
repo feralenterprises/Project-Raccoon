@@ -79,7 +79,7 @@ final class FilesModel {
 			icon = p != null && MiniJson.str(p, "icon") != null ? MiniJson.str(p, "icon") : encounterKey != null ? encounterKey + ".png" : null;
 			date = DATE.format(r.started());
 			String unit = r.unitLabel() == null ? "" : r.unitLabel();
-			Long c = (long) r.units();
+			Long c = r.count().hasValue() ? Long.valueOf(r.count().value()) : null; // unknown count stays unknown (a11)
 			if ("barrows".equals(activityKey) && !"chests".equalsIgnoreCase(unit)) {
 				c = null;
 				unit = "chests";
