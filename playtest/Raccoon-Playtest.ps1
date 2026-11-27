@@ -369,6 +369,9 @@ function Show-Menu {
 	}
 }
 
+# test seam: the launcher regression tests dot-source this file without running a step
+if ($env:RACCOON_PLAYTEST_NO_MAIN -eq '1') { return }
+
 switch ($Step) {
 	'Menu' { Show-Menu; exit 0 }
 	'SelfCheck' { [void](Invoke-SelfCheck); exit 0 }

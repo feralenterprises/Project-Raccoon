@@ -67,6 +67,23 @@ jobs:
             || { grep -qE 'Could not (GET|HEAD) |Connection reset|Read timed out|connect timed out|Received status code 5' "${RUNNER_TEMP}/kit-build.log" \
                  && sleep 20 && ./gradlew --no-daemon --no-build-cache --init-script playtest/kit.gradle clean playtestKit; }
 
+      - name: Evaluator regression tests (kit review a0ef3e4c)
+        run: |
+          set +e
+          ./gradlew --no-daemon --no-build-cache --init-script playtest/kit.gradle playtestTest; code=$?
+          set -e
+          python3 -I - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          t = f = 0
+          for x in glob.glob("build/test-results/playtestTest/*.xml"):
+              r = ET.parse(x).getroot(); t += int(r.get("tests")); f += int(r.get("failures")) + int(r.get("errors"))
+              for c in r.iter("testcase"):
+                  for bad in list(c.findall("failure")) + list(c.findall("error")):
+                      print(f"::error title=evaluator test {c.get('name')}::{(bad.get('message') or '')[:300]}")
+          print(f"::notice title=evaluator tests::{t} run, {f} failed")
+          PY
+          exit $code
+
       - name: Candidate development JAR is byte-identical
         run: |
           jar=build/playtest-kit/kit/lib/dev/project-raccoon.jar
@@ -205,6 +222,16 @@ jobs:
       - name: Kit self-check (Windows PowerShell 5.1)
         run: |
           & (Join-Path $env:RUNNER_TEMP 'kit-run\Raccoon-Playtest.ps1') -Step SelfCheck -NonInteractive
+          exit $LASTEXITCODE
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: src
+          persist-credentials: false
+
+      - name: Launcher regression tests (kit review a0ef3e4c)
+        run: |
+          & powershell -NoProfile -ExecutionPolicy Bypass -File src\playtest\tests\Launcher.Tests.ps1 (Join-Path $env:RUNNER_TEMP 'kit-run\Raccoon-Playtest.ps1')
           exit $LASTEXITCODE
 
       - name: R1 on the Windows runner (deterministic regression replay)

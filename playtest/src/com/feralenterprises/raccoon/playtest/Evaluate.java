@@ -34,14 +34,22 @@ public final class Evaluate
 	static final long BANK_P95_LIMIT = 10_000_000L;
 
 	private final List<String[]> rows = new ArrayList<>();
+	private final java.io.PrintStream out;
 
-	private Evaluate()
+	private Evaluate(java.io.PrintStream out)
 	{
+		this.out = out;
 	}
 
 	public static void main(String[] args) throws Exception
 	{
-		Evaluate ev = new Evaluate();
+		System.exit(run(args, System.out));
+	}
+
+	/** Evaluates and prints the verdicts to {@code out}; returns the exit code (test seam). */
+	static int run(String[] args, java.io.PrintStream out) throws Exception
+	{
+		Evaluate ev = new Evaluate(out);
 		String step = args[0];
 		switch (step)
 		{
@@ -61,7 +69,7 @@ public final class Evaluate
 			default:
 				throw new IllegalArgumentException("unknown step " + step);
 		}
-		System.exit(ev.print(step));
+		return ev.print(step);
 	}
 
 	private void row(String id, String verdict, String detail)
@@ -73,15 +81,15 @@ public final class Evaluate
 	{
 		boolean fail = false;
 		boolean blocked = false;
-		System.out.println(step + " verdicts");
+		out.println(step + " verdicts");
 		for (String[] r : rows)
 		{
-			System.out.println(String.format("  %-36s %-13s %s", r[0], r[1], r[2]));
+			out.println(String.format("  %-36s %-13s %s", r[0], r[1], r[2]));
 			fail |= "FAIL".equals(r[1]);
 			blocked |= "BLOCKED".equals(r[1]);
 		}
 		String overall = fail ? "FAIL" : blocked ? "BLOCKED" : "PASS";
-		System.out.println(step + " overall: " + overall);
+		out.println(step + " overall: " + overall);
 		return fail ? 1 : blocked ? 2 : 0;
 	}
 

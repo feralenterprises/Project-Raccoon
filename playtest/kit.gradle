@@ -23,6 +23,13 @@ allprojects {
 			playtest {
 				java.srcDir rootProject.file('playtest/src')
 				compileClasspath += sourceSets.main.output + sourceSets.test.output + configurations.testCompileClasspath
+				runtimeClasspath += compileClasspath
+			}
+			// evaluator regressions (kit CI only; not shipped)
+			playtestTest {
+				java.srcDir rootProject.file('playtest/test')
+				compileClasspath += sourceSets.playtest.output + sourceSets.playtest.compileClasspath
+				runtimeClasspath += compileClasspath
 			}
 		}
 
@@ -33,6 +40,12 @@ allprojects {
 			reproducibleFileOrder = true
 			from sourceSets.test.output
 			from sourceSets.playtest.output
+		}
+
+		tasks.register('playtestTest', Test) {
+			description = 'Runs the FR-006 kit evaluator regressions.'
+			testClassesDirs = sourceSets.playtestTest.output.classesDirs
+			classpath = sourceSets.playtestTest.runtimeClasspath
 		}
 
 		def isolationJar = tasks.register('playtestIsolationJar', Jar) {
