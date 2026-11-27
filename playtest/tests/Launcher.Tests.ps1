@@ -181,22 +181,50 @@ try {
 	function Invoke-Isolated([string]$runDir, [scriptblock]$body, [string[]]$allowCreated = @()) { $script:allowSeen[(Split-Path $runDir -Leaf).Split('-')[0]] = (@($allowCreated) -join ','); return $true }
 	function Invoke-Evaluate([string]$runDir, [string[]]$evalArgs) { return 0 }
 	function Initialize-Sideload($m, [string]$run) { return (Join-Path $run 'client.log') }
+	function Get-WindowsAccountFacts { return [pscustomobject]@{ userName = 'RaccoonTest'; isAdministratorsMember = $false; profileRuneLite = $false; localRuneLite = $false; complete = $true } }
 	[void](Invoke-R2); [void](Invoke-R3); [void](Invoke-R4)
 	Check 'R3 allows only the SessionStore key' ($script:allowSeen['R3'] -eq 'windowsCredential') ("seen: " + (($script:allowSeen.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '; '))
 	Check 'R2 has no allowance' ($script:allowSeen['R2'] -eq '')
 	Check 'R4 has no allowance' ($script:allowSeen['R4'] -eq '')
 
-	Write-Host "reset removes the key only when the kit created it"
+	Write-Host "the kit never deletes the shared RuneLite SessionStore key (Solis auth review)"
 	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
 	$script:removed = 0
 	function Remove-SessionStoreCredential { $script:removed++ }
-	function Get-SessionStoreCredential { return [pscustomobject]@{ present = ($script:removed -eq 0); complete = $true } }
-	[void](Invoke-Reset)
-	Check 'without the kit marker the key is left alone' ($script:removed -eq 0)
+	function Get-SessionStoreCredential { return [pscustomobject]@{ present = $true; complete = $true } }
 	Set-Content -Path (Join-Path $t.kit 'KIT-CREATED-CREDENTIAL.txt') -Value 'created'
-	$code = Invoke-Reset
-	Check 'with the kit marker the key is removed' ($script:removed -eq 1)
-	Check 'the marker is cleared after removal' (-not (Test-Path (Join-Path $t.kit 'KIT-CREATED-CREDENTIAL.txt')))
+	[void](Invoke-Reset)
+	Check 'reset never deletes the credential, even with an old marker' ($script:removed -eq 0)
+
+	Write-Host "R3 only in a dedicated standard Windows test account"
+	function Test-R3Gate($facts) {
+		$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
+		$script:factsForTest = $facts
+		function Get-WindowsAccountFacts { return $script:factsForTest }
+		$script:isolatedCalled = $false
+		function Invoke-Isolated([string]$runDir, [scriptblock]$body, [string[]]$allowCreated = @()) { $script:isolatedCalled = $true; return $true }
+		function Invoke-Evaluate([string]$runDir, [string[]]$evalArgs) { return 0 }
+		$code = Invoke-R3
+		return [pscustomobject]@{ code = $code; launched = $script:isolatedCalled }
+	}
+	$good = [pscustomobject]@{ userName = 'RaccoonTest'; isAdministratorsMember = $false; profileRuneLite = $false; localRuneLite = $false; complete = $true }
+	$res = Test-R3Gate $good
+	Check 'a dedicated standard RaccoonTest account may run R3' ($res.launched -and $res.code -eq 0)
+	foreach ($case in @(
+			@('an administrator account', @{ isAdministratorsMember = $true }),
+			@('another account name', @{ userName = 'Owner' }),
+			@('an account with a normal RuneLite folder', @{ profileRuneLite = $true }),
+			@('an account with RuneLite installed', @{ localRuneLite = $true }),
+			@('unreadable account facts', @{ complete = $false }))) {
+		$f = $good.PSObject.Copy()
+		foreach ($k in $case[1].Keys) { $f.$k = $case[1][$k] }
+		$res = Test-R3Gate $f
+		Check ("R3 refuses " + $case[0] + " before any launch") ((-not $res.launched) -and $res.code -ne 0)
+	}
+	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
+	$facts = Get-WindowsAccountFacts
+	Check 'account facts are read on this machine' $facts.complete
+	Check 'the CI runner account (an administrator) is not accepted as a test account' (@(Test-DedicatedTestAccount $facts).Count -gt 0)
 
 	Write-Host "Java preferences are compared by value, not by key count"
 	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
