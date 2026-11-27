@@ -134,6 +134,29 @@ public class ObservedTransitionTest
 		missingEventExpires("CONNECTION_LOST");
 	}
 
+	private void eventPastTheDeadlineRetires(String t)
+	{
+		observe(t);
+		now += 121 * SECOND;
+		observe(t); // any later event past the deadline retires at once
+		assertEquals(AccountState.RETIRED, snap().state());
+		assertEquals(RetireReason.CONTINUITY_TIMEOUT, snap().lastRetireReason());
+		returnAndTick();
+		assertRetiredAndCleared();
+	}
+
+	@Test
+	public void eventPastTheHopDeadlineRetiresAtOnce()
+	{
+		eventPastTheDeadlineRetires("HOPPING");
+	}
+
+	@Test
+	public void eventPastTheConnectionLossDeadlineRetiresAtOnce()
+	{
+		eventPastTheDeadlineRetires("CONNECTION_LOST");
+	}
+
 	// ------------------------------------------------------------------ delayed phase event
 
 	private void delayedEventDoesNotRestart(String t)
@@ -210,6 +233,29 @@ public class ObservedTransitionTest
 	public void duplicateConnectionLossObservationsAndEventsDoNotRestartTheDeadline()
 	{
 		duplicatesDoNotRestart("CONNECTION_LOST");
+	}
+
+	private void reobservedAfterLoadingDoesNotRestart(String t)
+	{
+		observe(t);
+		accounts.onGameState("LOADING");
+		now += 60 * SECOND;
+		observe(t); // the transition is seen again at a later event
+		now += 61 * SECOND; // 121 s after the first observation
+		returnAndTick();
+		assertRetiredAndCleared();
+	}
+
+	@Test
+	public void hopSeenAgainAfterLoadingDoesNotRestartTheDeadline()
+	{
+		reobservedAfterLoadingDoesNotRestart("HOPPING");
+	}
+
+	@Test
+	public void connectionLossSeenAgainAfterLoadingDoesNotRestartTheDeadline()
+	{
+		reobservedAfterLoadingDoesNotRestart("CONNECTION_LOST");
 	}
 
 	private void duplicatePhaseEventsDoNotRestart(String t)
