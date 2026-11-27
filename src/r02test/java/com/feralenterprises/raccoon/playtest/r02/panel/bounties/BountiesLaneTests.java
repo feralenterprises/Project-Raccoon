@@ -77,6 +77,9 @@ public final class BountiesLaneTests {
 		check("11 archived bounties in board order", d.entries.size() == 11 && d.entries.get(0).key.equals("Giant_Mole") && d.entries.get(10).key.equals("Brutus"));
 		check("example weapon from the Weapon slot (not Ammo): Vorkath rune crossbow, Barrows air battlestaff",
 			vork.exampleWeapon == 9185 && barrows.exampleWeapon == 1397 && "dagannoth-kings".equals(dk.outfitKey) && d.itemName(9185).equals("Rune crossbow"));
+		check("every bounty has an archived encounter key; Dagannoth Kings share one", d.entries.stream().allMatch(e -> e.outfitKey != null)
+			&& entry(d, "Dagannoth_Prime").outfitKey.equals("dagannoth-kings") && barrows.outfitKey.equals("barrows")
+			&& entry(d, "Giant_Mole").outfitKey.equals("giant-mole"));
 		check("every gate quest resolves to a Pathfinder quest slug", d.entries.stream().filter(e -> e.gate != null)
 			.allMatch(e -> pf.questBySlug(PathfinderData.slug(e.gate)) != null && pf.questBySlug(PathfinderData.slug(e.gate)).name.equals(e.gate)));
 	}
@@ -215,8 +218,13 @@ public final class BountiesLaneTests {
 				size(225);
 				((RButton) named("bb-row-Dharok_the_Wretched")).doClick();
 				size(225);
-				check("encounter without a shared registry entry offers no Chronicle or Outfitter route", named("bb-chronicle") == null && named("bb-outfit") == null
-					&& text("bb-state").equals("Within reach"));
+				boolean reach = text("bb-state").equals("Within reach");
+				((RButton) named("bb-chronicle")).doClick();
+				size(225);
+				check("Barrows (within reach) routes by its archived encounter key, not the per-brother bounty key", reach
+					&& comp.navigator().currentRequest().equals(RouteRequest.of("chronicle", RouteRequest.Param.ENCOUNTER, "barrows")));
+				comp.shell().header().back().doClick();
+				size(225);
 				comp.shell().header().back().doClick();
 				((SearchField) named("bb-search")).setText("");
 				size(225);

@@ -15,6 +15,10 @@ Base: accepted common framework `6684228b`. Lane D writes only `panel/pathfinder
 #   com.feralenterprises.raccoon.playtest.r02.panel.bounties.BountiesLaneTests
 ```
 
+Host wiring (shared owner): load `panel.pathfinder.ProgressionPanels.registrations(laneInputsZip, frozenReview)` off the
+EDT and pass the three registrations (exactly `Lane.PROGRESSION.routes()`) to `R02Composition` on the EDT. Entry contract
+suite (same arguments, no evidence dir): `panel.pathfinder.ProgressionEntryTests`.
+
 Inputs stay private: the accepted Lane Inputs ZIP (SHA-256 `1f6a821d…cece`, refused if different, every file checked
 against its `SHA256SUMS`) and the extracted frozen review. Evidence PNGs contain private art: do not publish them.
 Functional build on shared components; visual polish follows owner playtesting.

@@ -159,8 +159,9 @@ final class BountiesPanel extends StackPanel implements LocalBack, Disposable {
 		x.setExpanded(false);
 		c.addAll(x);
 		add(c);
-		String encounter = BountiesData.slug(e.name);
-		if (context.registry().encounter(encounter).isPresent()) {
+		// ENCOUNTER ids are the archived encounter keys Lane B's Chronicle and Outfitter resolve (B/outfitter.json, frozen aliases).
+		if (e.outfitKey != null) {
+			String encounter = e.outfitKey;
 			add(button("bb-chronicle", "Open Boss Chronicle", () -> context.navigate(RouteId.CHRONICLE, RouteRequest.Param.ENCOUNTER, encounter)));
 			add(button("bb-outfit", "Open Outfitter", () -> context.navigate(RouteId.OUTFIT, RouteRequest.Param.ENCOUNTER, encounter)));
 		}
