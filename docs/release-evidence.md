@@ -207,6 +207,39 @@ SHA-256 `81523f3bdadaae16da613d69f32d1d9ca0c447fc7afca2652b5ee39b19943eca`, arti
 | Official post-processed JAR | **76,238 bytes**, SHA-256 `807089c91bc8651ded67b3ffb5b5ec13cc765c6d69f48653a8774d9601f65d0c`, 71 entries |
 | Retained | artifact `15166766655` (zip `sha256:2296476377c390c1f86388bdc7b384d72ff978cc7b0016e6ebdcf800c78bf595`), run `45926719072`; fresh-runner job `140269888590`, source archive 93/93 |
 
+## FR-005 — foundation audit, accumulated regressions and performance
+
+**Status: reported; awaiting independent QA (not accepted).** FR-002/003/004 accepted at
+`41eb2ace`. Audit record, regression matrix and defect ledger: `docs/foundation-audit.md`.
+
+| Item | Value |
+|---|---|
+| Source SHA | `aefb1d79f680ef2c184e24b82e487db08d05c879` (code at `2202e1bd`: I01/I02, performance harness, verifier member allowlist and skipped/missing-suite rejection; then audit records) |
+| Tests | 20 suites, **243 tests**, 0 failures, 0 errors, **0 skipped**, all 20 required suites present; both foundation runs (`140283235087`, `140284810195`) |
+| Verifier self-test | **44/44** (new: game write on an allowed type, skipped test, missing required suite) |
+| RuneLite members (official JAR) | 24, all reads on `ALLOWED_RUNELITE_MEMBERS` (`packaged.runeliteMembers`) |
+| Development JAR | **75,907 bytes**, SHA-256 `eebb6ecc7617dff9b98bb30f6f791da86dbc52ce72652d5017d38b7d0a12c51c`, 58 classes, major 55, reproducible |
+| Official post-processed JAR | **76,270 bytes**, SHA-256 `5eb3405a5be817340a626f4625859f47ec9591afc10e792322dd290d3b456bd5`, 71 entries |
+| Retained | artifact `15168762052` (zip `sha256:a7640ad0c3cd58d780988b1aa40a1f83736e868c6ed3b173b8ca35fca8d5b57b`), run `45930961714`; fresh-runner job `140283450821`, source archive 97/97 |
+| Infrastructure | one foundation run failed resolving lombok from Maven Central on both attempts (`140283221155`, retry fired); re-run green (`140284810195`). At `2202e1bd`, one foundation run and the head packaging failed resolving Maven/RuneLite POMs; superseded by `aefb1d79` |
+
+### Performance — deterministic simulation (not native; native is FR-006)
+
+Method: `FoundationPerformanceTest`; production wiring (Guice, real RuneLite 1.13.8 `EventBus`),
+client proxied; one `EventBus.post` per sample timed with `System.nanoTime`; warm-up discarded;
+nearest-rank percentiles. Toolchain: Gradle 8.10 test task, Temurin 11.0.33+10, `--release 11`,
+JUnit 4.12, GitHub-hosted runner image ubuntu24 20261122.23.1, Linux x64, 4 vCPU, 512 MiB max heap.
+
+| Measurement | Samples (warm-up) | Run `140283235087` (AMD EPYC 7763, Azure) p50 / p95 / p99 / max | Run `140284810195` (Intel Xeon 6975P-C, AWS) p50 / p95 / p99 / max | Requirement | Result |
+|---|---|---|---|---|---|
+| Event callback replay | 1,000 (3,000) | 0.005 / **0.016** / 0.029 / 0.053 ms | 0.002 / **0.007** / 0.015 / 0.035 ms | p95 ≤ 2 ms | PASS (simulation) |
+| Bank-open capture, 1,000 slots | 200 (50) | 0.904 / **1.474** / 1.801 / 8.170 ms | 0.645 / **1.105** / 1.208 / 5.962 ms | p95 ≤ 10 ms | PASS (simulation) |
+| Bank-open capture, 4,096 slots (tracker bound) | 200 (50) | 1.399 / **1.965** / 2.180 / 5.917 ms | 1.235 / **1.614** / 1.651 / 5.319 ms | p95 ≤ 10 ms | PASS (simulation) |
+
+Every bank sample produced exactly one capture (checked) and the bank reached
+`QUALIFIED_CURRENT`. Reports: `fr005-performance.txt` in each run's `foundation-local-evidence`
+artifact. **Native performance: BLOCKED until FR-006.**
+
 ## Size history (SR-6)
 
 | Handback | Source | Dev JAR bytes | Dev JAR SHA-256 | Official JAR bytes | Official JAR SHA-256 | Δ official |
@@ -224,5 +257,6 @@ SHA-256 `81523f3bdadaae16da613d69f32d1d9ca0c447fc7afca2652b5ee39b19943eca`, arti
 | FR-004 review repair | `0f983cff` | 75,499 (+287) | `528e6d72…d6301c` | 75,863 | `07baa3e3…2c99b2` | +287 vs `e21a2326` (event-time validation) |
 | FR-004 re-review repair | `3e5cd549` | 75,974 (+475) | `aad0eb63…e230ad2` | 76,337 | `37e5727a…5264f76b` | +474 vs `0f983cff` (central event-time observation) |
 | FR-004 re-review repair (2) | `41eb2ace` | 75,875 (−99) | `cd899d3f…6b99f83` | 76,238 | `807089c9…01f65d0c` | −99 vs `3e5cd549` (special case removed) |
+| FR-005 | `aefb1d79` | 75,907 (+32) | `eebb6ecc…0a12c51c` | 76,270 | `5eb3405a…3b456bd5` | +32 vs `41eb2ace` (`subscriberCount()` diagnostic) |
 
 Limits: foundation 262,144 bytes · release target < 8,000,000 bytes · ceiling 10,485,760 bytes.

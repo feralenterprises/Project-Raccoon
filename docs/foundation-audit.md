@@ -98,8 +98,10 @@ plugin callback for that event); warm-up discarded; nearest-rank percentiles. Re
 | Event callback replay | 1,000 (3,000) | fixed cycle: Brutus KC line, other boss line, player chat, spam, game tick (bank closed), client tick | p95 ≤ 2 ms |
 | Bank-open capture | 200 (50), at 1,000 slots and at the 4,096-slot tracker bound | one game tick each, exactly one capture each (checked): lifecycle tick, visibility, identity before/after, bank + 28 inventory + 14 equipment reads, a definition per slot, tab varbits, evaluation, publication | p95 ≤ 10 ms |
 
-Results, machine, environment and toolchain for the exact source SHA: `docs/release-evidence.md`
-(FR-005). These are **simulation** numbers; the genuine client's object costs and threading are
+Results at source `aefb1d79` (two runs, two machines; full table, machines and toolchain in
+`docs/release-evidence.md`, FR-005): event callback replay p95 **0.016 ms** and **0.007 ms**
+(≤ 2 ms); bank-open capture p95 at 1,000 slots **1.474 ms** and **1.105 ms**, at 4,096 slots
+**1.965 ms** and **1.614 ms** (≤ 10 ms). These are **simulation** numbers; the genuine client's object costs and threading are
 not represented. **Native performance: BLOCKED until FR-006.**
 
 ## 5. Carried to FR-006 (not claimed)
