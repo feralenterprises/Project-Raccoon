@@ -143,6 +143,12 @@ the same commit gives a different hash; the retained artifact above is the accep
 | Development JAR | **66,976 bytes**, SHA-256 `de7ce90907d97cb508f198af27acee990d40214194a57b5e807fdcce79e80065`, 51 classes, major 55 |
 | Official packaging @ `8452cd8c` | **Not produced**: the official packager's `prepare.sh` could not download `protobuf-javalite:3.21.12` from Maven Central (job `140230717268`); artifact `15161622293` holds no JAR and is not a receipt. The following evidence-only commit packages identical code; its receipt is the handback artifact |
 
+## FR-002 + FR-003 accepted receipt
+
+Independently accepted at `7f0d580bcc825b4ce7d7c136fca61d8c90ad9597`: official JAR **67,341 bytes**,
+SHA-256 `81523f3bdadaae16da613d69f32d1d9ca0c447fc7afca2652b5ee39b19943eca`, artifact `15161991699`
+(run `45915565584`); now in continuing CI re-verification (`verify-recorded`).
+
 ## Size history (SR-6)
 
 | Handback | Source | Dev JAR bytes | Dev JAR SHA-256 | Official JAR bytes | Official JAR SHA-256 | Δ official |

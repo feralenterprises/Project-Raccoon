@@ -228,6 +228,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - commit: 7f0d580bcc825b4ce7d7c136fca61d8c90ad9597 # accepted FR-002 + FR-003 receipt
+            run: 45915565584
+            sha256: 81523f3bdadaae16da613d69f32d1d9ca0c447fc7afca2652b5ee39b19943eca
+            bytes: 67341
           - commit: 312e5e8c54487354d9d957e04ea7a92aa04fcee8 # FR-003 review repair receipt
             run: 45913262497
             sha256: b27cfb326b16f3bcff5c7e51970f8147ecab4d305352fdc3ce7e2f219d9b51e3

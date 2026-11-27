@@ -100,6 +100,24 @@ tracker lock.
 - Scopes are namespaced per lifecycle instance: a value tagged with a scope from another instance
   (for example a previous simulator run) is never accepted.
 
+### Binding/disposal guard (required in addition to authority checks)
+
+Cancelling a subscription stops future callbacks; it does **not** invalidate work already queued to
+the EDT, and that work may carry account or bank evidence that is still perfectly current. Account
+authority (`ConsumerScopeGate`) and bank authority (`bank.isCurrent(evidence)`) answer "is this
+data still valid?", not "is this consumer still bound?". Every consumer therefore keeps its own
+**binding generation**, confined to its thread:
+
+1. Increment the generation on every bind, rebind, detach and dispose; capture it when work is
+   queued.
+2. On application, apply only if the captured generation equals the current one **and** the
+   authority checks pass. A detached or disposed consumer shows the neutral state and applies
+   nothing, even for current evidence.
+3. Test detach, rebind and delayed callbacks (queued before and run after disposal).
+
+This guard belongs to each consumer (for example the UI workstream's binding layer); the core does
+not provide it, because only the consumer knows when it was detached.
+
 ## Simulator
 
 The simulator reuses the same interfaces (SR-4):
