@@ -7,7 +7,7 @@ these tests. No shared, fixture, assembly, host or other-lane files are changed.
 ./gradlew --offline compileR02testJava
 "$JAVA_HOME/bin/java" -Djava.awt.headless=true \
   -cp 'build/classes/java/main:build/classes/java/r02:build/classes/java/r02test' \
-  com.feralenterprises.raccoon.playtest.r02.panel.bank.BankLaneTests \
+  com.feralenterprises.raccoon.playtest.r02.panel.bank.BankLaneTests \   # also panel.capture.CaptureLaneTests
   /path/to/Project-Raccoon-R02-Lane-Inputs.zip /path/to/Project-Raccoon-R02 [evidence-dir]
 ```
 
