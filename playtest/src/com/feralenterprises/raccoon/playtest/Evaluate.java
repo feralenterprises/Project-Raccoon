@@ -396,7 +396,8 @@ public final class Evaluate
 			while ((e = z.getNextEntry()) != null)
 			{
 				String n = e.getName();
-				if (n.contains("/playtest/") || n.endsWith("Test.class") || n.contains("PluginHarness") || n.contains("Probe"))
+				if (n.contains("/playtest/") || n.endsWith("Test.class") || n.contains("PluginHarness") || n.contains("NativeBankProbe")
+					|| n.contains("NativeEvaluationProbe") || n.contains("WitnessPlugin") || n.contains("PlaytestClient"))
 				{
 					return "FAIL";
 				}

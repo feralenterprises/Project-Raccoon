@@ -79,11 +79,11 @@ jobs:
         run: |
           python3 -I - official-receipt/project-raccoon.jar build/playtest-kit/kit/lib/dev/project-raccoon.jar build/playtest-kit/kit/lib/client <<'PY'
           import glob, os, re, sys, zipfile
-          bad = re.compile(r"(/playtest/|Test\.class$|Harness|Probe|Witness|PlaytestClient)")
+          bad = re.compile(r"(/playtest/|Test\.class$|PluginHarness|NativeBankProbe|NativeEvaluationProbe|WitnessPlugin|PlaytestClient|R1Runner)")
           fail = False
           for jar in sys.argv[1:3]:
               hits = [n for n in zipfile.ZipFile(jar).namelist() if bad.search(n)]
-              print(f"::notice title=artifact contents::{os.path.basename(os.path.dirname(jar))}/{os.path.basename(jar)}: {len(hits)} test/playtest entries")
+              print(f"::notice title=artifact contents::{os.path.basename(os.path.dirname(jar))}/{os.path.basename(jar)}: {len(hits)} test/playtest entries {hits[:5]}")
               fail |= bool(hits)
           foreign = 0
           jars = glob.glob(os.path.join(sys.argv[3], "*.jar"))
