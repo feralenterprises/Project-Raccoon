@@ -79,6 +79,19 @@ Rules:
 5. Bank listeners run on the client thread under the tracker lock: enqueue only, never block.
 6. Call `bankOwnership` on the client thread or accept that it reflects the moment of the call.
 
+## Brutus kill count (FR-004, package `com.feralenterprises.raccoon.core.kc`)
+
+`BrutusKcView` (from `BrutusKcService.view()`): `currentLoginTotal()`, `currentLoginTotal(scope)`,
+`isQuarantined()`, `revision()`.
+
+- The total is "kills gained this login", not the absolute kill count. It is empty unless the
+  account is publishable; show nothing (not 0) when empty.
+- Read on the client thread with `currentLoginTotal(scope)` for the scope you hold, hand an
+  immutable copy to the UI thread tagged with that scope, and apply it only under the account gate
+  **and** your binding generation (see below).
+- `revision()` changes on baseline, gain and quarantine; there is no listener in FR-004.
+- `isQuarantined()` means "KC observation paused until the next hop or login", not an error.
+
 ## Lock order and safe disposal
 
 Locks, outermost first: lifecycle **delivery** lock → bank **tracker** lock → lifecycle **state**

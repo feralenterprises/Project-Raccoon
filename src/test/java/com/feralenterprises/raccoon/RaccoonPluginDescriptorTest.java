@@ -7,6 +7,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.feralenterprises.raccoon.account.AccountLifecycleService;
 import com.feralenterprises.raccoon.bank.BankObservationService;
+import com.feralenterprises.raccoon.kc.BrutusKcService;
 import com.feralenterprises.raccoon.core.bank.BankCaptureSource;
 import com.feralenterprises.raccoon.core.bank.BankFrame;
 import com.feralenterprises.raccoon.core.bank.BankVisibility;
@@ -82,7 +83,7 @@ public class RaccoonPluginDescriptorTest
 				throw new AssertionError("no capture while signed out");
 			}
 		}, () -> 1);
-		RaccoonPlugin plugin = new RaccoonPlugin(service, bank);
+		RaccoonPlugin plugin = new RaccoonPlugin(service, bank, new BrutusKcService(service));
 		plugin.startUp();
 		assertFalse(service.view().snapshot().isPublishable());
 		plugin.shutDown();

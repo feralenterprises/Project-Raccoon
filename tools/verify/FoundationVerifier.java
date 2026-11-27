@@ -92,7 +92,10 @@ public class FoundationVerifier
 		"net/runelite/api/gameval/ItemID",
 		"net/runelite/api/gameval/InterfaceID",
 		"net/runelite/api/gameval/InterfaceID$Bankmain",
-		"net/runelite/api/gameval/InterfaceID$BankpinKeypad"
+		"net/runelite/api/gameval/InterfaceID$BankpinKeypad",
+		// FR-004 Brutus KC: typed chat only
+		"net/runelite/api/ChatMessageType",
+		"net/runelite/api/events/ChatMessage"
 	));
 	/** Core (pure domain) may reference only these, plus itself. */
 	static final List<String> CORE_ALLOWED_PREFIXES = Arrays.asList("java/lang/", "java/util/", "java/time/");

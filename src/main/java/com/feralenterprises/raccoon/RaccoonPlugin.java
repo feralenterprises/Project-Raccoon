@@ -2,8 +2,10 @@ package com.feralenterprises.raccoon;
 
 import com.feralenterprises.raccoon.account.AccountLifecycleService;
 import com.feralenterprises.raccoon.bank.BankObservationService;
+import com.feralenterprises.raccoon.kc.BrutusKcService;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.ClientTick;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
@@ -13,7 +15,7 @@ import net.runelite.client.plugins.PluginDescriptor;
 
 /**
  * Plugin entry. Owns the account lifecycle and read-only bank observation and forwards client
- * events to them. No UI, persistence, networking or game writes; later assignments consume
+ * events to them, and observes the Brutus kill count from typed game chat. No UI, persistence, networking or game writes; later assignments consume
  * {@link AccountLifecycleService#view()} and {@link BankObservationService#view()}.
  */
 @Slf4j
@@ -29,15 +31,19 @@ public class RaccoonPlugin extends Plugin
 	@Inject
 	private BankObservationService bankObservation;
 
+	@Inject
+	private BrutusKcService brutusKc;
+
 	public RaccoonPlugin()
 	{
 	}
 
 	/** Test seam. */
-	RaccoonPlugin(AccountLifecycleService accountLifecycle, BankObservationService bankObservation)
+	RaccoonPlugin(AccountLifecycleService accountLifecycle, BankObservationService bankObservation, BrutusKcService brutusKc)
 	{
 		this.accountLifecycle = accountLifecycle;
 		this.bankObservation = bankObservation;
+		this.brutusKc = brutusKc;
 	}
 
 	@Override
@@ -68,6 +74,12 @@ public class RaccoonPlugin extends Plugin
 		// lifecycle first, so bank observation sees this tick's fresh scope
 		accountLifecycle.onGameTick();
 		bankObservation.onGameTick();
+	}
+
+	@Subscribe
+	public void onChatMessage(ChatMessage event)
+	{
+		brutusKc.onChatMessage(event.getType(), event.getMessage());
 	}
 
 	@Subscribe

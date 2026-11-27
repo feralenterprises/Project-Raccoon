@@ -54,6 +54,33 @@ no other boss, prefix (`completion count for`, `subdued`), or suffix is accepted
 
 Full donor parity is not claimed: two files reviewed, no native comparison.
 
-## Acceptance cases → tests
+## Implementation
 
-Filled in with the implementation.
+| Part | Location |
+|---|---|
+| Pure core | `core/kc`: `BrutusKcParser`, `BrutusKcTracker` (implements `BrutusKcView`), `ChatKind`, `KcResult` |
+| RuneLite adapter | `kc/BrutusKcService`: `ChatMessageType.GAMEMESSAGE` → GAME, `SPAM` → SPAM, all else OTHER; captures `snapshot().scope()` at the chat event |
+| Wiring | `RaccoonPlugin.onChatMessage(ChatMessage)`; checker allows exactly `ChatMessageType` and `events.ChatMessage` |
+| State | lifecycle login slot `kc.brutus.total`; epoch slots `kc.brutus.last` (count + authority), `kc.brutus.quarantined` |
+
+## Acceptance cases → tests (`core/kc/BrutusKcTrackerTest`, `kc/BrutusKcServiceTest`)
+
+| Case | Tests |
+|---|---|
+| K01 | `k01_genuineSequenceAddsThree` (428 → 429 → 429 → 431: baseline, +1, 0, +2 = 3), `k01_spamTypeAndPlainOrGroupedCountsAreAccepted` |
+| K02 | `k02_*` (5): player/unrelated chat, other bosses (Demonic Brutus, Vorkath, completion/harvest variants), loot-only, malformed and out-of-range counts, total overflow quarantines |
+| K03 | `k03_regressionQuarantinesUntilNewEpoch` (stays quarantined over a region change; lifted by a verified hop) |
+| K04 | `k04_*` (6): duplicate sequence, repeated line, stale token (pre-LOADING authority), wrong epoch, wrong account (missed logout), foreign lifecycle scope, no scope while suspended |
+| K05 | `k05_*` (6): verified hop keeps 3, masked while suspended, 431 baseline, 432 → 4; unverified, expired, retired hop, logout and disable clear, next observation baseline zero |
+| Other | region change rebaselines without bridging; revision only on observable events; adapter type mapping over every `ChatMessageType`; service scope capture |
+
+Mutation check (local): 11 rule removals; 10 caught. The survivor (dropping the tracker's own
+`isCurrent` check) is equivalent: every lifecycle slot read and write re-checks the scope, so a
+stale or foreign scope still yields `REJECTED_SCOPE` with no state change.
+
+## Limitations
+
+- Message format and types verified against pinned RuneLite source only; a real Brutus kill line
+  in a native client is FR-006 (R3).
+- RuneLite chat events are not proof of server origin; no plugin or test may synthesise them in
+  production.

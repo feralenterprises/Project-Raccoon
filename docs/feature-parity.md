@@ -9,7 +9,7 @@ governing plan, which is kept out of public source; only IDs and status are reco
 | FR-001 Official packager | strict non-upload post-processed JAR ≤ 256 KiB | Accepted: `cb3bc8b1` receipt (see release evidence) |
 | FR-002 Account lifecycle | A01–A06 | Accepted at `abf11bfa`; re-accepted with namespace/cancellation repair at `7f0d580b` |
 | FR-003 Read-only bank observation | B01–B10 | Accepted at `7f0d580b` (independent review) |
-| FR-004 Brutus-only typed chat KC | K01–K05 | Pending |
+| FR-004 Brutus-only typed chat KC | K01–K05 | Implemented; awaiting independent review (cases → tests in `docs/kill-count.md`) |
 | FR-005 Foundation audit | regressions, performance | Pending |
 | FR-006 Windows verification | R1–R4 | Pending |
 

@@ -14,7 +14,7 @@ java tools/verify/FoundationVerifier.java artifact . build/libs/project-raccoon.
 ./gradlew run   # development client
 ```
 
-Records: [standing engineering requirements](docs/engineering-requirements.md) · [architecture](docs/architecture.md) · [account lifecycle](docs/account-lifecycle.md) · [UI integration](docs/ui-integration.md) · [bank observation](docs/bank-observation.md) · [feature parity](docs/feature-parity.md) ·
+Records: [standing engineering requirements](docs/engineering-requirements.md) · [architecture](docs/architecture.md) · [account lifecycle](docs/account-lifecycle.md) · [UI integration](docs/ui-integration.md) · [bank observation](docs/bank-observation.md) · [kill count](docs/kill-count.md) · [feature parity](docs/feature-parity.md) ·
 [migration provenance](docs/migration-provenance.md) · [release evidence](docs/release-evidence.md) ·
 [governance](docs/governance.md) · [pins](release/pins.properties)
 

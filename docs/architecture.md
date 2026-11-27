@@ -18,11 +18,13 @@ Status: FR-000 foundation. Roadmap and authorization: issue #1 (authoritative).
 com.feralenterprises.raccoon                 plugin entry and event forwarding (RuneLite-facing)
 com.feralenterprises.raccoon.account         RuneLite adapter for the account lifecycle
 com.feralenterprises.raccoon.bank            RuneLite adapter for bank observation (reads only)
+com.feralenterprises.raccoon.kc              RuneLite adapter for Brutus KC (typed chat only)
         │
         ▼  (allowed)
 com.feralenterprises.raccoon.core            pure domain: java.lang / java.util / java.time only
 com.feralenterprises.raccoon.core.account    account lifecycle: single source of truth (FR-002)
 com.feralenterprises.raccoon.core.bank       read-only bank observation over the lifecycle (FR-003)
+com.feralenterprises.raccoon.core.kc         Brutus kill count over the lifecycle (FR-004)
 ```
 
 - `core` must never depend on the plugin package, on RuneLite, or on any other library.
@@ -35,7 +37,8 @@ com.feralenterprises.raccoon.core.bank       read-only bank observation over the
   `Item`, `ItemComposition` and `widgets.Widget` for read-only bank observation, plus the constant
   holders `gameval.InventoryID`, `VarbitID`, `ItemID`, `InterfaceID`, `InterfaceID$Bankmain` and
   `InterfaceID$BankpinKeypad` (their values are inlined, but javac still records the class names,
-  so each is listed explicitly). All other `net.runelite.api` types stay forbidden.
+  so each is listed explicitly); (FR-004) `net.runelite.api.ChatMessageType` and `events.ChatMessage`.
+  All other `net.runelite.api` types stay forbidden.
 - Account state lives only in `core.account.AccountLifecycle` (see `docs/account-lifecycle.md`);
   consumers use `AccountLifecycleView` and `AccountDataRegistry` (see `docs/ui-integration.md`).
 - Later assignments widen the allowed surface only by editing the allowlist in
