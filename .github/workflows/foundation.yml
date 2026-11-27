@@ -41,12 +41,18 @@ jobs:
       - name: Clean build and tests
         run: |
           set -o pipefail
-          if ./gradlew --no-daemon --no-build-cache clean build 2>&1 | tee "${RUNNER_TEMP}/gradle-build.log"; then exit 0; fi
-          # retry once ONLY for dependency download failures (never for compile or test failures)
-          if grep -q 'Could not resolve' "${RUNNER_TEMP}/gradle-build.log" && ! grep -qE 'tests completed|> Task :test FAILED|> Task :compileJava FAILED.*error|error:' "${RUNNER_TEMP}/gradle-build.log"; then
-            echo "::warning title=dependency download::retrying the build once after a dependency resolution failure"
+          log1="${RUNNER_TEMP}/gradle-build-attempt1.log"
+          log2="${RUNNER_TEMP}/gradle-build-attempt2.log"
+          if ./gradlew --no-daemon --no-build-cache clean build 2>&1 | tee "$log1"; then exit 0; fi
+          # Retry once ONLY for dependency transport/download failures. Never when the log shows a
+          # compile error, any test task result, or a test failure; verifier steps are separate
+          # and never retried.
+          transport='Could not (GET|HEAD) |Connection reset|Connection refused|Read timed out|connect timed out|Received status code 5[0-9][0-9]|Remote host terminated the handshake|UnknownHostException'
+          if grep -q 'Could not resolve' "$log1" && grep -qE "$transport" "$log1" \
+            && ! grep -qE '(^|[^a-z])error:|> Task :test|tests completed' "$log1"; then
+            echo "::warning title=dependency download::retrying the build once after a dependency transport failure (both logs uploaded)"
             sleep 20
-            ./gradlew --no-daemon --no-build-cache clean build 2>&1 | tee "${RUNNER_TEMP}/gradle-build.log"
+            ./gradlew --no-daemon --no-build-cache clean build 2>&1 | tee "$log2"
           else
             exit 1
           fi
@@ -62,10 +68,11 @@ jobs:
                       msg = (bad.get("message") or bad.text or "").replace("%", "%25").replace("\r", "").replace("\n", "%0A")[:900]
                       print(f"::error title=test {case.get('classname')}.{case.get('name')}::{msg}")
           PY
-          if [ -f "${RUNNER_TEMP}/gradle-build.log" ]; then
-            msg=$(grep -E 'FAILED|FAILURE|error:|What went wrong|Could not|Exception' "${RUNNER_TEMP}/gradle-build.log" | head -n 40 | cut -c1-300 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
-            echo "::error title=gradle build log::${msg:-no matching lines}"
-          fi
+          for f in "${RUNNER_TEMP}"/gradle-build-attempt*.log; do
+            [ -f "$f" ] || continue
+            msg=$(grep -E 'FAILED|FAILURE|error:|What went wrong|Could not|Exception' "$f" | head -n 40 | cut -c1-300 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=gradle $(basename "$f")::${msg:-no matching lines}"
+          done
 
       - name: Test counts
         run: java tools/verify/FoundationVerifier.java tests build/test-results/test
@@ -88,4 +95,5 @@ jobs:
           path: |
             build/libs/project-raccoon.jar
             ${{ runner.temp }}/foundation-evidence.txt
+            ${{ runner.temp }}/gradle-build-attempt*.log
           if-no-files-found: warn

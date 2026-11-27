@@ -59,7 +59,7 @@ Full donor parity is not claimed: two files reviewed, no native comparison.
 | Part | Location |
 |---|---|
 | Pure core | `core/kc`: `BrutusKcParser`, `BrutusKcTracker` (implements `BrutusKcView`), `ChatKind`, `KcResult` |
-| RuneLite adapter | `kc/BrutusKcService`: `ChatMessageType.GAMEMESSAGE` → GAME, `SPAM` → SPAM, all else OTHER; captures `snapshot().scope()` at the chat event |
+| RuneLite adapter | `kc/BrutusKcService`: `ChatMessageType.GAMEMESSAGE` → GAME, `SPAM` → SPAM, all else OTHER; uses `AccountLifecycleService.scopeForEventNow()`: the live game state must be `LOGGED_IN`, the live world supported, and an identity read at the event confirmed by the lifecycle (`confirms`) for the current scope, otherwise `REJECTED_SCOPE` |
 | Wiring | `RaccoonPlugin.onChatMessage(ChatMessage)`; checker allows exactly `ChatMessageType` and `events.ChatMessage` |
 | State | lifecycle login slot `kc.brutus.total`; epoch slots `kc.brutus.last` (count + authority), `kc.brutus.quarantined` |
 
@@ -72,6 +72,7 @@ Full donor parity is not claimed: two files reviewed, no native comparison.
 | K03 | `k03_regressionQuarantinesUntilNewEpoch` (stays quarantined over a region change; lifted by a verified hop) |
 | K04 | `k04_*` (6): duplicate sequence, repeated line, stale token (pre-LOADING authority), wrong epoch, wrong account (missed logout), foreign lifecycle scope, no scope while suspended |
 | K05 | `k05_*` (6): verified hop keeps 3, masked while suspended, 431 baseline, 432 → 4; unverified, expired, retired hop, logout and disable clear, next observation baseline zero |
+| Review 2026-11-26 | `BrutusKcEventValidationTest` (8; 7 reproduced at `4371f279`): identity changed, LOGIN_SCREEN, unsupported world, unknown / failed identity read, unreadable game state before reconciliation; rejected line never becomes a baseline; ordinary operation |
 | Other | region change rebaselines without bridging; revision only on observable events; adapter type mapping over every `ChatMessageType`; service scope capture |
 
 Mutation check (local): 11 rule removals; 10 caught. The survivor (dropping the tracker's own

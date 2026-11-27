@@ -11,8 +11,8 @@ import javax.inject.Singleton;
 import net.runelite.api.ChatMessageType;
 
 /**
- * RuneLite adapter for Brutus KC: forwards typed chat with the account scope current at the
- * moment the message arrives. No inference from loot, NPC death or any other event.
+ * RuneLite adapter for Brutus KC: forwards typed chat with the account scope that the live client
+ * still matches at the moment the message arrives ({@link AccountLifecycleService#scopeForEventNow()}). No inference from loot, NPC death or any other event.
  */
 @Singleton
 public class BrutusKcService
@@ -40,7 +40,8 @@ public class BrutusKcService
 	/** Seam for tests and the simulator. */
 	public KcResult onChatMessage(ChatKind kind, String message)
 	{
-		AccountScope scope = accounts.view().snapshot().scope().orElse(null);
+		// live identity, phase and world at the event, confirmed by the central lifecycle
+		AccountScope scope = accounts.scopeForEventNow().orElse(null);
 		return tracker.onChatMessage(scope, kind, message);
 	}
 

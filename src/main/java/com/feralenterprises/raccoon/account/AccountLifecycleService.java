@@ -3,11 +3,13 @@ package com.feralenterprises.raccoon.account;
 import com.feralenterprises.raccoon.core.account.AccountDataRegistry;
 import com.feralenterprises.raccoon.core.account.AccountLifecycle;
 import com.feralenterprises.raccoon.core.account.AccountLifecycleView;
+import com.feralenterprises.raccoon.core.account.AccountScope;
 import com.feralenterprises.raccoon.core.account.AccountState;
 import com.feralenterprises.raccoon.core.account.ClientPhase;
 import com.feralenterprises.raccoon.core.account.IdentityReading;
 import com.feralenterprises.raccoon.core.account.WorldContext;
 import java.util.LinkedHashSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -54,6 +56,25 @@ public class AccountLifecycleService
 	public AccountDataRegistry data()
 	{
 		return lifecycle;
+	}
+
+	/**
+	 * Scope for an event happening now (for example a chat message), only if the live client still
+	 * matches it: game state LOGGED_IN, supported world, and an identity read now that the central
+	 * lifecycle confirms for that scope. Validation only: nothing is changed, and the lifecycle
+	 * reconciles on its next tick. Client thread.
+	 */
+	public Optional<AccountScope> scopeForEventNow()
+	{
+		Optional<AccountScope> scope = lifecycle.snapshot().scope();
+		if (!scope.isPresent()
+			|| ClientPhase.fromName(readGameState()) != ClientPhase.LOGGED_IN
+			|| !readWorld().isSupported()
+			|| !lifecycle.confirms(scope.get(), readIdentity()))
+		{
+			return Optional.empty();
+		}
+		return scope;
 	}
 
 	public void start()

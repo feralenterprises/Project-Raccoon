@@ -114,6 +114,13 @@ reading is a verified identity of that scope's account. Observers (FR-003 bank c
 client identity before and after a capture and ask the lifecycle; the hash is never exposed and
 no second account authority exists.
 
+## Event-time validation
+
+Events that arrive between game ticks (for example chat) use
+`AccountLifecycleService.scopeForEventNow()`: the current scope only if, at that moment, the live
+game state is `LOGGED_IN`, the live world is supported, and a fresh identity read is confirmed by
+`confirms(scope, reading)`. It validates only; the lifecycle still reconciles on its next tick.
+
 ## Threading and delivery
 
 - Inputs arrive on the client thread and are synchronized, so a plugin stop racing a tick stays
