@@ -13,6 +13,10 @@ these tests. No shared, fixture, assembly, host or other-lane files are changed.
 
 Page suites (same arguments): `panel.bank.BankLaneTests`, `panel.capture.CaptureLaneTests`, `panel.xpstash.XpStashLaneTests`.
 
+Host wiring (shared owner): load `panel.bank.AccountPanels.registrations(laneInputsZip, frozenReview)` off the EDT and
+pass the three registrations (exactly `Lane.ACCOUNT.routes()`) to `R02Composition` on the EDT. Entry contract suite
+(same arguments, no evidence dir): `panel.bank.AccountEntryTests`.
+
 XP Stash engine: `panel.xpstash.XpEngineTests <Lane Inputs ZIP> [reference.json]` checks the three frozen arithmetic
 vectors; with a reference file it also compares every seeded scenario with the frozen engine. Produce the reference with
 `node src/r02test/java/.../panel/xpstash/reference-diff.js <extracted R02-Lane-Inputs> reference.json 600` (it runs the
