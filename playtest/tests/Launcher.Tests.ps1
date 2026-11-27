@@ -30,6 +30,8 @@ function New-TestKit {
 	Set-Content -Path (Join-Path $kit 'lib\dev\dev.jar') -Value 'd'
 	Set-Content -Path (Join-Path $kit 'lib\isolation\iso.jar') -Value 'i'
 	Set-Content -Path (Join-Path $kit 'official\project-raccoon.jar') -Value 'o'
+	Set-Content -Path (Join-Path $kit 'R3-CHECKLIST.txt') -Value 'r3'
+	Set-Content -Path (Join-Path $kit 'R4-CHECKLIST.txt') -Value 'r4'
 	$files = Get-ChildItem $kit -Recurse -File | Sort-Object FullName | ForEach-Object {
 		[ordered]@{ path = $_.FullName.Substring($kit.Length + 1); sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
 	}

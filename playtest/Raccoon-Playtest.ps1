@@ -246,7 +246,7 @@ function Compare-ProfileSnapshot($before, $after) {
 	foreach ($k in $before.parts.Keys) { if ($before.parts[$k] -ne $after.parts[$k]) { $changed += $k } }
 	foreach ($k in @('profileTopLevel', 'localAppDataTopLevel', 'appDataTopLevel')) {
 		if ($before.parts[$k] -ne $after.parts[$k]) {
-			$b = $before.parts[$k] -split '\|'; $a = $after.parts[$k] -split '\|'
+			$b = @($before.parts[$k] -split '\|' | Where-Object { $_ }); $a = @($after.parts[$k] -split '\|' | Where-Object { $_ })
 			$added = @($a | Where-Object { $b -notcontains $_ }).Count; $removed = @($b | Where-Object { $a -notcontains $_ }).Count
 			$changed += ("{0}: {1} added, {2} removed" -f $k, $added, $removed)
 		}
