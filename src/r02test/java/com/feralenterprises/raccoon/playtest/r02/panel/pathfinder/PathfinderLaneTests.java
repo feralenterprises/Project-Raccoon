@@ -188,7 +188,10 @@ public final class PathfinderLaneTests {
 					&& text("pf-quest-state").equals("Quest state: Unknown") && text("pf-quest-access").startsWith("Requirement unverified."));
 				comp.shell().header().back().doClick();
 				size(225);
-				check("Back closes the quest context, staying on Pathfinder", named("pf-quest-context") == null && named("pf-goal") != null);
+				check("Back from the typed quest context returns to the sender (frozen access context)", comp.navigator().current().equals("chronicle"));
+				comp.navigator().navigate("pathfinder");
+				size(225);
+				check("a plain visit drops the access context", named("pf-quest-context") == null && named("pf-goal") != null);
 				comp.navigator().navigate(RouteRequest.of("pathfinder", RouteRequest.Param.MILESTONE, "seed"));
 				size(225);
 				check("typed MILESTONE for a route node opens its detail", text("pf-detail-state").equals("Current · account evidence"));
@@ -217,7 +220,8 @@ public final class PathfinderLaneTests {
 				check("C-03 demo A: The Ides of Milk not started, requirement not met", text("pf-quest-state").equals("Quest state: Not started")
 					&& text("pf-quest-access").equals("Requirement not met: the quest is not complete."));
 				shot("03-pathfinder-quest-context.png");
-				comp.shell().header().back().doClick();
+				comp.navigator().navigate("chronicle");
+				comp.navigator().navigate("pathfinder");
 				size(225);
 				check("demo A: Song of the Elves in progress, 8/13", text("pf-overall-text").equals("8/13 · 62%"));
 			} finally { comp.dispose(); }

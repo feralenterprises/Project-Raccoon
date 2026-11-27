@@ -89,17 +89,22 @@ final class PathfinderPanel extends StackPanel implements LocalBack, RouteAware,
 	// ------------------------------------------------------------------ navigation contracts
 
 	@Override public void routeShown(RouteRequest request, boolean returning) {
-		if (returning || request == null || request.param() != RouteRequest.Param.MILESTONE) return;
+		if (returning) return;
+		if (request == null || request.param() != RouteRequest.Param.MILESTONE) {
+			// A plain visit drops a sender's access context (frozen pfAccessContext); returning keeps it.
+			if (questContext != null) { questContext = null; render(); onBackChanged.run(); }
+			return;
+		}
 		String id = request.paramId();
 		if (data.node(id) != null) { questContext = null; selected = id; render(); onBackChanged.run(); }
 		else if (data.questBySlug(id) != null) { selected = null; questContext = id; render(); onBackChanged.run(); }
 	}
 
-	@Override public boolean hasLocalBack() { return selected != null || questContext != null || tab != 0; }
+	/** The typed quest context is the sender's access context, not a local level: Back returns to the sender (frozen R02). */
+	@Override public boolean hasLocalBack() { return selected != null || tab != 0; }
 
 	@Override public void localBack() {
-		if (questContext != null) questContext = null;
-		else if (selected != null) { focusAfter = "pf-node-" + selected; selected = null; }
+		if (selected != null) { focusAfter = "pf-node-" + selected; selected = null; }
 		else if (tab != 0) tab = 0;
 		else return;
 		render();
