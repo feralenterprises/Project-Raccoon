@@ -255,38 +255,60 @@ function Get-JvmArgs($manifest, [string]$runDir) {
 	)
 }
 
-# Runs $body between two snapshots of the watched locations. Returns $true only if every check
-# completed and nothing changed; otherwise the kit latches (no further launches) and returns $false.
+# Runs $body between two snapshots of the watched locations, failing closed:
+# - preflight snapshot throws or is incomplete: the body is NOT run; the kit latches
+# - the body throws: the step fails (never PASS); the postflight still runs
+# - postflight snapshot throws or is incomplete, or anything changed: the kit latches
+# The isolation receipt is written in every case. Returns $true only when the preflight and
+# postflight were complete, nothing changed and the body completed without an exception.
 function Invoke-Isolated([string]$runDir, [scriptblock]$body) {
 	Assert-NotLatched
 	Assert-NoRuneLiteRunning
-	$before = Get-ProfileSnapshot
-	$bodyError = $null
-	try { & $body | Out-Host }
-	catch { $bodyError = $_.Exception.Message }
-	$after = Get-ProfileSnapshot
-	$changes = Compare-ProfileSnapshot $before $after
-	$complete = $before.complete -and $after.complete
-	$ok = $complete -and ($changes.Count -eq 0)
+	$before = $null; $after = $null
+	$preflightError = $null; $postflightError = $null; $bodyError = $null
+	$bodyRan = $false
+	try { $before = Get-ProfileSnapshot }
+	catch { $preflightError = $_.Exception.Message }
+	$preflightOk = ($null -eq $preflightError) -and ($null -ne $before) -and $before.complete
+	if ($preflightOk) {
+		$bodyRan = $true
+		try { & $body | Out-Host }
+		catch { $bodyError = $_.Exception.Message }
+		try { $after = Get-ProfileSnapshot }
+		catch { $postflightError = $_.Exception.Message }
+	}
+	$postflightOk = $preflightOk -and ($null -eq $postflightError) -and ($null -ne $after) -and $after.complete
+	$changes = @()
+	if ($postflightOk) { $changes = Compare-ProfileSnapshot $before $after }
+	$isolationOk = $postflightOk -and ($changes.Count -eq 0)
+	$ok = $isolationOk -and ($null -eq $bodyError)
+	$result = $(if (-not $preflightOk) { 'PREFLIGHT_FAILED' } elseif (-not $postflightOk) { 'INCOMPLETE' } elseif ($changes.Count -gt 0) { 'FAIL' } elseif ($bodyError) { 'STEP_FAILED' } else { 'PASS' })
 	$iso = [ordered]@{
 		watched = '%USERPROFILE%: .runelite, jagexcache, jagex_cl_oldschool_LIVE.dat, random.dat, .jagex_cache_32, top-level entries; HKCU\Software\JavaSoft\Prefs (keys and values)'
-		checksComplete = $complete
+		preflightComplete = $preflightOk
+		stepRan = $bodyRan
+		postflightComplete = $postflightOk
 		changes = @($changes)
 		isolatedHome = '<kit>\home'; isolatedTemp = '<kit>\tmp'
+		preflightError = $preflightError
 		stepError = $bodyError
-		result = $(if ($ok) { 'PASS' } elseif (-not $complete) { 'INCOMPLETE' } else { 'FAIL' })
+		postflightError = $postflightError
+		result = $result
 	}
-	$iso | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $runDir 'isolation.json')
-	if ($ok) {
+	try { $iso | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $runDir 'isolation.json') }
+	catch { $isolationOk = $false; $ok = $false; Say "The isolation receipt could not be written: $($_.Exception.Message)" Red }
+	if ($isolationOk) {
 		Say "Isolation check: no change detected in the watched locations." Green
 	}
 	else {
-		$reason = $(if (-not $complete) { 'an isolation check could not be completed (a watched location could not be read)' } else { 'a watched location changed: ' + ($changes -join '; ') })
+		$reason = $(if (-not $preflightOk) { 'the isolation check before the step could not be completed, so the step was not run' + $(if ($preflightError) { " ($preflightError)" } else { '' }) }
+			elseif (-not $postflightOk) { 'the isolation check after the step could not be completed' + $(if ($postflightError) { " ($postflightError)" } else { '' }) }
+			else { 'a watched location changed: ' + ($changes -join '; ') })
 		Set-Latch $reason
 		Say "STOPPED: $reason." Red
 		Say "The kit will not launch the test client again. Send KIT-STOPPED.txt and the receipts to the reviewer." Red
 	}
-	if ($bodyError) { Say "The step itself reported a problem: $bodyError" Red }
+	if ($bodyError) { Say "The step failed: $bodyError" Red }
 	return $ok
 }
 
