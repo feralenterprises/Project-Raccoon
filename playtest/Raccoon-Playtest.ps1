@@ -67,6 +67,34 @@ function Get-Snapshot([string]$dir) {
 	return [pscustomobject]@{ exists = $true; files = @($rows).Count; digest = $digest }
 }
 
+# Locations outside the kit that RuneLite or the game client could write to on Windows. The
+# injected game client also reads %USERPROFILE% (not only user.home), so the profile's
+# top-level entries and the classic Jagex cache locations are watched as well.
+function Get-ProfileSnapshot {
+	$profileDir = $env:USERPROFILE
+	$parts = [ordered]@{}
+	$parts['.runelite'] = (Get-Snapshot (Join-Path $profileDir '.runelite')).digest
+	$parts['jagexcache'] = (Get-Snapshot (Join-Path $profileDir 'jagexcache')).digest
+	foreach ($f in @('jagex_cl_oldschool_LIVE.dat', 'random.dat', '.jagex_cache_32')) {
+		$p = Join-Path $profileDir $f
+		$parts[$f] = $(if (Test-Path -LiteralPath $p) { $i = Get-Item -LiteralPath $p -Force; '{0}|{1}' -f $i.Length, $i.LastWriteTimeUtc.Ticks } else { 'absent' })
+	}
+	$top = @(Get-ChildItem -LiteralPath $profileDir -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch '^(ntuser|NTUSER)' } | ForEach-Object { $_.Name } | Sort-Object)
+	$parts['profileTopLevel'] = ($top -join '|')
+	return $parts
+}
+
+function Compare-ProfileSnapshot($before, $after) {
+	$changed = @()
+	foreach ($k in $before.Keys) { if ($before[$k] -ne $after[$k]) { $changed += $k } }
+	if ($before['profileTopLevel'] -ne $after['profileTopLevel']) {
+		$b = $before['profileTopLevel'] -split '\|'; $a = $after['profileTopLevel'] -split '\|'
+		$added = @($a | Where-Object { $b -notcontains $_ }); $removed = @($b | Where-Object { $a -notcontains $_ })
+		$changed += ("profile entries added [{0}] removed [{1}]" -f ($added -join ', '), ($removed -join ', '))
+	}
+	return ,$changed
+}
+
 function Get-JavaPrefsCount {
 	$key = 'HKCU:\Software\JavaSoft\Prefs'
 	if (-not (Test-Path $key)) { return 0 }
@@ -116,26 +144,31 @@ function Get-JvmArgs($manifest, [string]$runDir) {
 function Invoke-Isolated([string]$runDir, [scriptblock]$body) {
 	Assert-NoRuneLiteRunning
 	$before = Get-Snapshot $RealRuneLite
+	$profileBefore = Get-ProfileSnapshot
 	$prefsBefore = Get-JavaPrefsCount
 	try { & $body }
 	finally {
 		$after = Get-Snapshot $RealRuneLite
+		$profileChanges = Compare-ProfileSnapshot $profileBefore (Get-ProfileSnapshot)
 		$prefsAfter = Get-JavaPrefsCount
-		$unchanged = ($before.digest -eq $after.digest) -and ($prefsBefore -eq $prefsAfter)
+		$unchanged = ($before.digest -eq $after.digest) -and ($prefsBefore -eq $prefsAfter) -and ($profileChanges.Count -eq 0)
 		$iso = [ordered]@{
 			normalRuneLiteFolder = '%USERPROFILE%\.runelite'
 			existsBefore = $before.exists; filesBefore = $before.files; digestBefore = $before.digest
 			existsAfter = $after.exists; filesAfter = $after.files; digestAfter = $after.digest
 			javaPrefsKeysBefore = $prefsBefore; javaPrefsKeysAfter = $prefsAfter
+			profileWatch = 'jagexcache, jagex_cl_oldschool_LIVE.dat, random.dat, .jagex_cache_32, profile top-level entries'
+			profileChanges = @($profileChanges)
 			isolatedHome = '<kit>\home'; isolatedTemp = '<kit>\tmp'
 			result = $(if ($unchanged) { 'PASS' } else { 'FAIL' })
 		}
 		$iso | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $runDir 'isolation.json')
-		if ($unchanged) { Say "Isolation: your normal RuneLite folder was not changed." Green }
+		if ($unchanged) { Say "Isolation: your normal RuneLite folder, Jagex cache, profile and Java settings were not changed." Green }
 		else {
 			Say "Isolation FAILED: your normal RuneLite folder or Java settings changed during this step. Please report this." Red
 			Say ("  normal RuneLite folder: exists {0}->{1}, files {2}->{3}, digest {4}->{5}" -f $before.exists, $after.exists, $before.files, $after.files, $before.digest, $after.digest) Red
 			Say ("  Java preferences keys: {0}->{1} now: {2}" -f $prefsBefore, $prefsAfter, ((Get-JavaPrefsNames) -join ', ')) Red
+			Say ("  profile changes: {0}" -f ($profileChanges -join '; ')) Red
 		}
 	}
 }
