@@ -24,7 +24,7 @@ function New-TestKit {
 	if (-not $env:RUNNER_TEMP) { $root = Join-Path ([IO.Path]::GetTempPath()) ("kit-test-" + [guid]::NewGuid().ToString('N').Substring(0, 8)) }
 	$kit = Join-Path $root 'kit'
 	$profileDir = Join-Path $root 'profile'
-	New-Item -ItemType Directory -Force -Path (Join-Path $kit 'lib\client'), (Join-Path $kit 'lib\dev'), (Join-Path $kit 'lib\isolation'), (Join-Path $kit 'official'), (Join-Path $profileDir '.runelite') | Out-Null
+	New-Item -ItemType Directory -Force -Path (Join-Path $kit 'lib\client'), (Join-Path $kit 'lib\dev'), (Join-Path $kit 'lib\isolation'), (Join-Path $kit 'official'), (Join-Path $profileDir '.runelite'), (Join-Path $root 'localappdata'), (Join-Path $root 'appdata') | Out-Null
 	Copy-Item $Launcher (Join-Path $kit 'Raccoon-Playtest.ps1')
 	Set-Content -Path (Join-Path $kit 'lib\client\client.jar') -Value 'c'
 	Set-Content -Path (Join-Path $kit 'lib\dev\dev.jar') -Value 'd'
@@ -41,6 +41,8 @@ function New-TestKit {
 function Set-KitEnv($t) {
 	# the launcher must be dot-sourced at script scope (a function scope would drop its functions)
 	$env:USERPROFILE = $t.profile
+	$env:LOCALAPPDATA = Join-Path $t.root 'localappdata'
+	$env:APPDATA = Join-Path $t.root 'appdata'
 	$env:RACCOON_PLAYTEST_NO_MAIN = '1'
 }
 
@@ -137,8 +139,6 @@ try {
 
 	Write-Host "a new top-level folder in LOCALAPPDATA or APPDATA (sign-in browser data elsewhere) latches"
 	$t = New-TestKit
-	$env:LOCALAPPDATA = Join-Path $t.root 'localappdata'; $env:APPDATA = Join-Path $t.root 'appdata'
-	New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA, $env:APPDATA | Out-Null
 	Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
 	$run = New-RunDir 'T'
 	$script:okResult = Invoke-Isolated $run { New-Item -ItemType Directory -Path (Join-Path $env:LOCALAPPDATA 'runelite_jagexauth.exe.WebView2') | Out-Null } @('windowsCredential')

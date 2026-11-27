@@ -38,8 +38,15 @@ $Sideload = Join-Path $IsoHome '.runelite\sideloaded-plugins'
 $IsoLogs = Join-Path $IsoHome '.runelite\logs'
 $Official = Join-Path $Kit 'official\project-raccoon.jar'
 
+# RuneLite's developer Jagex sign-in (1.13.8 rs/auth/SessionStore) keeps its session file in the
+# isolated .runelite folder, encrypted with a key it stores in Windows Credential Manager under this
+# generic target (machine persistence), outside the kit. The kit watches its presence only (names,
+# never secrets) and never reads it.
+$CredentialTarget = 'RuneLite SessionStore'
+$CredentialMarker = Join-Path $Kit 'KIT-CREATED-CREDENTIAL.txt'
+
 # files the kit itself creates while running; everything else must be in the manifest
-$RuntimeOwned = @('kit-manifest.json', 'KIT-STOPPED.txt')
+$RuntimeOwned = @('kit-manifest.json', 'KIT-STOPPED.txt', 'KIT-CREATED-CREDENTIAL.txt')
 $RuntimeOwnedDirs = @('receipts', 'home', 'tmp')
 
 function Say([string]$text, [string]$color = 'Gray') { Write-Host $text -ForegroundColor $color }
@@ -164,6 +171,21 @@ function Get-Snapshot([string]$dir) {
 	return [pscustomobject]@{ exists = $true; files = @($rows).Count; digest = $digest; complete = (@($errs).Count -eq 0) }
 }
 
+function Get-SessionStoreCredential {
+	# presence only: cmdkey lists credential names, never their secrets
+	try {
+		$out = & cmdkey.exe "/list:$CredentialTarget"
+		if ($LASTEXITCODE -ne 0) { return [pscustomobject]@{ present = $false; complete = $false } }
+		$present = @($out | Where-Object { "$_" -match [regex]::Escape("target=$CredentialTarget") }).Count -gt 0
+		return [pscustomobject]@{ present = $present; complete = $true }
+	}
+	catch { return [pscustomobject]@{ present = $false; complete = $false } }
+}
+
+function Remove-SessionStoreCredential {
+	& cmdkey.exe "/delete:$CredentialTarget" | Out-Null
+}
+
 function Get-JavaPrefsDigest {
 	# every key, value name, value kind and value data under the shared Java preferences key
 	$key = 'HKCU:\Software\JavaSoft\Prefs'
@@ -201,19 +223,33 @@ function Get-ProfileSnapshot {
 		Where-Object { $_.Name -notmatch '^(ntuser|NTUSER)' } | ForEach-Object { $_.Name } | Sort-Object)
 	$complete = $complete -and (@($errs).Count -eq 0)
 	$parts['profileTopLevel'] = ($top -join '|')
+	# the developer Jagex sign-in runs a WebView2 window; a browser data folder created outside the
+	# kit would appear as a new top-level folder here (names only)
+	foreach ($pair in @(@('localAppDataTopLevel', $env:LOCALAPPDATA), @('appDataTopLevel', $env:APPDATA))) {
+		if (-not $pair[1]) { $parts[$pair[0]] = 'unset'; continue }
+		$errs = $null
+		$names = @(Get-ChildItem -LiteralPath $pair[1] -Force -ErrorAction SilentlyContinue -ErrorVariable errs | ForEach-Object { $_.Name } | Sort-Object)
+		$complete = $complete -and (@($errs).Count -eq 0)
+		$parts[$pair[0]] = ($names -join '|')
+	}
 	$prefs = Get-JavaPrefsDigest
 	$parts['javaPreferences'] = $prefs.digest
 	$complete = $complete -and $prefs.complete
+	$cred = Get-SessionStoreCredential
+	$parts['windowsCredential'] = $(if ($cred.present) { 'present' } else { 'absent' })
+	$complete = $complete -and $cred.complete
 	return [pscustomobject]@{ parts = $parts; complete = $complete }
 }
 
 function Compare-ProfileSnapshot($before, $after) {
 	$changed = @()
 	foreach ($k in $before.parts.Keys) { if ($before.parts[$k] -ne $after.parts[$k]) { $changed += $k } }
-	if ($before.parts['profileTopLevel'] -ne $after.parts['profileTopLevel']) {
-		$b = $before.parts['profileTopLevel'] -split '\|'; $a = $after.parts['profileTopLevel'] -split '\|'
-		$added = @($a | Where-Object { $b -notcontains $_ }).Count; $removed = @($b | Where-Object { $a -notcontains $_ }).Count
-		$changed += ("profile top-level entries: {0} added, {1} removed" -f $added, $removed)
+	foreach ($k in @('profileTopLevel', 'localAppDataTopLevel', 'appDataTopLevel')) {
+		if ($before.parts[$k] -ne $after.parts[$k]) {
+			$b = $before.parts[$k] -split '\|'; $a = $after.parts[$k] -split '\|'
+			$added = @($a | Where-Object { $b -notcontains $_ }).Count; $removed = @($b | Where-Object { $a -notcontains $_ }).Count
+			$changed += ("{0}: {1} added, {2} removed" -f $k, $added, $removed)
+		}
 	}
 	return ,$changed
 }
@@ -261,7 +297,9 @@ function Get-JvmArgs($manifest, [string]$runDir) {
 # - postflight snapshot throws or is incomplete, or anything changed: the kit latches
 # The isolation receipt is written in every case. Returns $true only when the preflight and
 # postflight were complete, nothing changed and the body completed without an exception.
-function Invoke-Isolated([string]$runDir, [scriptblock]$body) {
+# $allowCreated names snapshot parts whose absent-to-present change is expected for this step
+# (R3 only: 'windowsCredential', RuneLite creating its sign-in key); every other change latches.
+function Invoke-Isolated([string]$runDir, [scriptblock]$body, [string[]]$allowCreated = @()) {
 	Assert-NotLatched
 	Assert-NoRuneLiteRunning
 	$before = $null; $after = $null
@@ -279,16 +317,23 @@ function Invoke-Isolated([string]$runDir, [scriptblock]$body) {
 	}
 	$postflightOk = $preflightOk -and ($null -eq $postflightError) -and ($null -ne $after) -and $after.complete
 	$changes = @()
-	if ($postflightOk) { $changes = Compare-ProfileSnapshot $before $after }
+	$expected = @()
+	if ($postflightOk) {
+		foreach ($c in (Compare-ProfileSnapshot $before $after)) {
+			if (($allowCreated -contains $c) -and $before.parts[$c] -eq 'absent' -and $after.parts[$c] -eq 'present') { $expected += $c }
+			else { $changes += $c }
+		}
+	}
 	$isolationOk = $postflightOk -and ($changes.Count -eq 0)
 	$ok = $isolationOk -and ($null -eq $bodyError)
 	$result = $(if (-not $preflightOk) { 'PREFLIGHT_FAILED' } elseif (-not $postflightOk) { 'INCOMPLETE' } elseif ($changes.Count -gt 0) { 'FAIL' } elseif ($bodyError) { 'STEP_FAILED' } else { 'PASS' })
 	$iso = [ordered]@{
-		watched = '%USERPROFILE%: .runelite, jagexcache, jagex_cl_oldschool_LIVE.dat, random.dat, .jagex_cache_32, top-level entries; HKCU\Software\JavaSoft\Prefs (keys and values)'
+		watched = '%USERPROFILE%: .runelite, jagexcache, jagex_cl_oldschool_LIVE.dat, random.dat, .jagex_cache_32, top-level entries; HKCU\Software\JavaSoft\Prefs (keys and values); Windows Credential Manager RuneLite SessionStore (presence); %LOCALAPPDATA% and %APPDATA% top-level folder names'
 		preflightComplete = $preflightOk
 		stepRan = $bodyRan
 		postflightComplete = $postflightOk
 		changes = @($changes)
+		expectedChanges = @($expected)
 		isolatedHome = '<kit>\home'; isolatedTemp = '<kit>\tmp'
 		preflightError = $preflightError
 		stepError = $bodyError
@@ -297,8 +342,14 @@ function Invoke-Isolated([string]$runDir, [scriptblock]$body) {
 	}
 	try { $iso | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $runDir 'isolation.json') }
 	catch { $isolationOk = $false; $ok = $false; Say "The isolation receipt could not be written: $($_.Exception.Message)" Red }
+	if ($isolationOk -and ($expected -contains 'windowsCredential')) {
+		Set-Content -LiteralPath $CredentialMarker -Encoding UTF8 -Value @(
+			"RuneLite created its Jagex sign-in encryption key ('$CredentialTarget') in Windows Credential Manager during $(Split-Path $runDir -Leaf).",
+			"Menu option 7 removes it (only because this kit created it).")
+		Say "Expected: RuneLite created its sign-in encryption key ('$CredentialTarget') in Windows Credential Manager. Menu option 7 removes it." Yellow
+	}
 	if ($isolationOk) {
-		Say "Isolation check: no change detected in the watched locations." Green
+		Say "Isolation check: no unexpected change detected in the watched locations." Green
 	}
 	else {
 		$reason = $(if (-not $preflightOk) { 'the isolation check before the step could not be completed, so the step was not run' + $(if ($preflightError) { " ($preflightError)" } else { '' }) }
@@ -395,6 +446,9 @@ function Invoke-SelfCheck {
 	Say "  official JAR  $($m.official.sha256)  $($m.official.bytes) bytes"
 	Say "  isolated home $IsoHome"
 	Say "  isolated temp $IsoTmp"
+	$cred = Get-SessionStoreCredential
+	Say ("  Windows Credential Manager '{0}': {1}{2}" -f $CredentialTarget, $(if (-not $cred.complete) { 'unreadable' } elseif ($cred.present) { 'present' } else { 'absent' }),
+		$(if (Test-Path -LiteralPath $CredentialMarker) { ' (created by this kit)' } else { '' }))
 	if ($bad.Count -gt 0) { $bad | Select-Object -First 20 | ForEach-Object { Say "  INTEGRITY $_" Red }; throw "Kit integrity check failed: download the kit again." }
 	Say "Kit integrity: all $($m.files.Count) listed files match and nothing unlisted is present." Green
 	if (Test-Latched) { Say "This kit has stopped itself (KIT-STOPPED.txt); client steps are disabled." Red }
@@ -442,10 +496,13 @@ function Invoke-ClientStep([string]$step, [string]$checklist, [int]$timeout) {
 		$cp = Get-KitClasspath $m @('lib\client', 'lib\isolation', 'lib\dev')
 		$extra = @("-Draccoon.playtest.mode=$step")
 		if ($step -eq 'R2') { $extra += '-Draccoon.playtest.exitAfterR2=true' }
+		# only R3 signs in, so only R3 may see RuneLite create its sign-in key
+		$allow = @()
+		if ($step -eq 'R3') { $allow = @('windowsCredential') }
 		$iso = Invoke-Isolated $run {
 			$argList = @(Get-JvmArgs $m $run) + $extra + @('-cp', $cp, 'com.feralenterprises.raccoon.playtest.PlaytestClient', '--developer-mode', '--debug')
 			[void](Start-Client $argList $run $timeout $null $null)
-		}
+		} $allow
 		$code = Invoke-Evaluate $run @($step, (Get-LatestReceipt $run $step))
 		if (-not (Test-NoSideloadInLog $log)) {
 			Say "FAIL: a plugin was side-loaded into the $step client; only the candidate and the witness may run there." Red
@@ -525,6 +582,14 @@ function Invoke-Reset {
 	}
 	try {
 		foreach ($d in @($IsoHome, $IsoTmp)) { Assert-NoReparseInside $d }
+		if (Test-Path -LiteralPath $CredentialMarker) {
+			# only a key this kit saw RuneLite create is removed; a pre-existing one is never touched
+			Remove-SessionStoreCredential
+			$c = Get-SessionStoreCredential
+			if (-not $c.complete -or $c.present) { throw "the '$CredentialTarget' entry could not be confirmed removed" }
+			Remove-Item -LiteralPath $CredentialMarker -Force
+			Say "Removed the '$CredentialTarget' entry the kit created." Green
+		}
 		foreach ($d in @($IsoHome, $IsoTmp)) { if (Test-Path -LiteralPath $d) { Remove-KitContents $d; Remove-Item -LiteralPath $d -Force -Recurse } }
 	}
 	catch { Say "Reset stopped: $($_.Exception.Message)" Red; return 1 }
