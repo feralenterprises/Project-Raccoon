@@ -164,14 +164,15 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 	 * Applies at once the existing rules that end or mask authority, so a contradiction never
 	 * leaves the previous scope readable:
 	 * <ul>
-	 * <li>a phase that differs from the last one seen is handled as that phase change would be
-	 * (logout, authenticator, LOGGING_IN during suspension and unrecognised phases retire;
-	 * LOADING masks), except that HOPPING or CONNECTION_LOST while active only masks: suspension
-	 * starts from the client's own phase event or the tick's reconciliation, never from an
-	 * observation;</li>
+	 * <li>a phase that differs from the last one seen is handled exactly as that phase change
+	 * would be (logout, authenticator, LOGGING_IN during suspension and unrecognised phases
+	 * retire; LOADING masks; HOPPING or CONNECTION_LOST while active suspends). The continuity
+	 * deadline therefore starts at the first observed transition, and the client's own phase
+	 * event, arriving later or repeated, finds the login already held and never restarts it;</li>
 	 * <li>an unsupported world retires an active or held login;</li>
 	 * <li>a verified identity other than the login's retires it, active or held;</li>
-	 * <li>an unverified identity retires an active login outside a witnessed transition.</li>
+	 * <li>an unverified identity retires a login that is still active (not inside a witnessed
+	 * transition).</li>
 	 * </ul>
 	 * An observation never activates a login, restores continuity, re-establishes freshness or
 	 * counts toward the authentication limit: those still need a {@code LOGGED_IN} game tick.
@@ -188,24 +189,16 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 				return;
 			}
 			expireIfDue(nowNanos);
-			boolean transition = observed == ClientPhase.HOPPING || observed == ClientPhase.CONNECTION_LOST;
 			if (observed != phase)
 			{
-				if (state == AccountState.ACTIVE && transition)
+				phase = observed;
+				if (state == AccountState.ACTIVE)
 				{
-					loseFreshness();
+					onPhaseWhileActive(observed, nowNanos);
 				}
-				else
+				else if (state == AccountState.SUSPENDED_CONTINUITY)
 				{
-					phase = observed;
-					if (state == AccountState.ACTIVE)
-					{
-						onPhaseWhileActive(observed, nowNanos);
-					}
-					else if (state == AccountState.SUSPENDED_CONTINUITY)
-					{
-						onPhaseWhileSuspended(observed);
-					}
+					onPhaseWhileSuspended(observed);
 				}
 			}
 			if (state == AccountState.ACTIVE || state == AccountState.SUSPENDED_CONTINUITY)
@@ -218,7 +211,7 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 				{
 					retire(RetireReason.DIFFERENT_ACCOUNT);
 				}
-				else if (!identity.isVerified() && state == AccountState.ACTIVE && !transition)
+				else if (!identity.isVerified() && state == AccountState.ACTIVE)
 				{
 					retire(RetireReason.IDENTITY_LOST);
 				}

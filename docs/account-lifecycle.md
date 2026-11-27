@@ -126,13 +126,15 @@ existing rules at once, so a contradiction never leaves the previous scope reada
 | LOGIN_SCREEN / authenticator / unrecognised phase | retire (`LOGOUT` / `AUTHENTICATOR` / `UNRECOGNIZED_CONTINUITY`) | retire, same reasons |
 | LOGGING_IN | retire (`UNRECOGNIZED_CONTINUITY`) | retire (`CONTINUITY_INTERRUPTED`) |
 | LOADING | mask (freshness lost) | no change |
-| HOPPING / CONNECTION_LOST | mask only; suspension starts from the client's own phase event or the tick's reconciliation | no change |
+| HOPPING / CONNECTION_LOST | suspend, exactly as the phase event would; the continuity deadline starts at this first observation | no change: a later, delayed or repeated phase event or observation never restarts the deadline |
 | unsupported world | retire (`UNSUPPORTED_WORLD`) | retire (`UNSUPPORTED_WORLD`) |
 | verified identity of another account | retire (`DIFFERENT_ACCOUNT`) | retire (`DIFFERENT_ACCOUNT`) |
-| unknown or failed identity read | retire (`IDENTITY_LOST`), unless HOPPING / CONNECTION_LOST is observed | no change |
+| unknown or failed identity read | retire (`IDENTITY_LOST`); an observed HOPPING / CONNECTION_LOST has already suspended, so the read is tolerated | no change |
 
 An observation never activates a login, restores continuity, re-establishes freshness or counts
-toward the authentication limit; those still need a `LOGGED_IN` game tick. So A→B→A between ticks
+toward the authentication limit; those still need a `LOGGED_IN` game tick. A verified
+restoration opens a new epoch; past the 120 s deadline (measured from the first observed
+transition) any input, an observation included, retires and clears the login. So A→B→A between ticks
 ends A's login at B, and A returns as a new login on the next tick. The scope is returned only if
 it is still current, the live state is `LOGGED_IN`, the world supported and `confirms(scope,
 reading)` holds for the identity read. Bank observation is tick-driven and runs after the tick's
