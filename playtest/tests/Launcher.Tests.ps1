@@ -116,6 +116,13 @@ try {
 	Check 'reset refuses a junction inside the kit home' ($code -ne 0)
 	Check 'the junction target is untouched' (Test-Path (Join-Path $outside 'sentinel.txt'))
 
+	Write-Host "client steps name their run folder after the step (CI R2 attempt at 3409297a)"
+	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
+	$code = Invoke-R2
+	$dirs = @(Get-ChildItem -LiteralPath (Join-Path $t.kit 'receipts') -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+	Check 'an R2 run folder R2-<UTC> is created' (@($dirs | Where-Object { $_ -match '^R2-\d{8}-\d{6}$' }).Count -eq 1) ($dirs -join ', ')
+	Check 'R2 without a Java runtime reports failure' ($code -ne 0)
+
 	Write-Host "no unconditional reassurance"
 	$text = Get-Content -Raw $Launcher
 	Check 'no "Nothing was changed outside this folder"' (-not $text.Contains('Nothing was changed outside this folder'))
