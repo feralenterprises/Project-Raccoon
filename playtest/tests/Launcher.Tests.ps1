@@ -117,6 +117,69 @@ try {
 	Check 'a throwing step is not recorded as PASS' (($null -ne $iso) -and ($iso.result -ne 'PASS'))
 	Check 'a throwing step records its error' (($null -ne $iso) -and ("$($iso.stepError)" -like '*simulated step failure*'))
 
+	Write-Host "Windows Credential Manager: RuneLite SessionStore key is watched (auth investigation)"
+	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
+	$script:credCalls = 0
+	function Get-SessionStoreCredential { $script:credCalls++; return [pscustomobject]@{ present = ($script:credCalls -ge 2); complete = $true } }
+	$run = New-RunDir 'T'
+	$script:okResult = Invoke-Isolated $run { }
+	Check 'a credential created during a no-login step fails isolation' ($script:okResult -eq $false)
+	Check 'a credential created during a no-login step latches' (Test-Path (Join-Path $t.kit 'KIT-STOPPED.txt'))
+
+	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
+	function Get-SessionStoreCredential { return [pscustomobject]@{ present = $false; complete = $false } }
+	$run = New-RunDir 'T'
+	$script:bodyRan = $false
+	$script:okResult = Invoke-Isolated $run { $script:bodyRan = $true }
+	Check 'an unreadable credential state stops the step before it runs' ((-not $script:bodyRan) -and ($script:okResult -eq $false))
+
+	Write-Host "R3 sign-in: only the absent-to-present key is an expected, recorded change"
+	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
+	$script:credCalls = 0
+	function Get-SessionStoreCredential { $script:credCalls++; return [pscustomobject]@{ present = ($script:credCalls -ge 2); complete = $true } }
+	$run = New-RunDir 'T'
+	$script:okResult = Invoke-Isolated $run { } @('windowsCredential')
+	Check 'the expected key creation passes when allowed' ($script:okResult -eq $true)
+	Check 'the kit records that it created the key' (Test-Path (Join-Path $t.kit 'KIT-CREATED-CREDENTIAL.txt'))
+	$iso = Get-Content -Raw (Join-Path $run 'isolation.json') | ConvertFrom-Json
+	Check 'the isolation receipt lists the expected change' (@($iso.expectedChanges) -contains 'windowsCredential')
+
+	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
+	$script:credCalls = 0
+	function Get-SessionStoreCredential { $script:credCalls++; return [pscustomobject]@{ present = ($script:credCalls -ge 2); complete = $true } }
+	$run = New-RunDir 'T'
+	$script:okResult = Invoke-Isolated $run { Set-Content -Path (Join-Path $env:USERPROFILE '.runelite\x.txt') -Value 'x' } @('windowsCredential')
+	Check 'the allowance never covers other changes' ($script:okResult -eq $false)
+
+	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
+	$script:credCalls = 0
+	function Get-SessionStoreCredential { $script:credCalls++; return [pscustomobject]@{ present = ($script:credCalls -lt 2); complete = $true } }
+	$run = New-RunDir 'T'
+	$script:okResult = Invoke-Isolated $run { } @('windowsCredential')
+	Check 'a removed key is never an expected change' ($script:okResult -eq $false)
+
+	Write-Host "only R3 is given the allowance"
+	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
+	$script:allowSeen = @{}
+	function Invoke-Isolated([string]$runDir, [scriptblock]$body, [string[]]$allowCreated = @()) { $script:allowSeen[(Split-Path $runDir -Leaf).Split('-')[0]] = (@($allowCreated) -join ','); return $true }
+	function Invoke-Evaluate([string]$runDir, [string[]]$evalArgs) { return 0 }
+	[void](Invoke-R2); [void](Invoke-R3); [void](Invoke-R4)
+	Check 'R3 allows only the SessionStore key' ($script:allowSeen['R3'] -eq 'windowsCredential') ("seen: " + (($script:allowSeen.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '; '))
+	Check 'R2 has no allowance' ($script:allowSeen['R2'] -eq '')
+	Check 'R4 has no allowance' ($script:allowSeen['R4'] -eq '')
+
+	Write-Host "reset removes the key only when the kit created it"
+	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
+	$script:removed = 0
+	function Remove-SessionStoreCredential { $script:removed++ }
+	function Get-SessionStoreCredential { return [pscustomobject]@{ present = ($script:removed -eq 0); complete = $true } }
+	[void](Invoke-Reset)
+	Check 'without the kit marker the key is left alone' ($script:removed -eq 0)
+	Set-Content -Path (Join-Path $t.kit 'KIT-CREATED-CREDENTIAL.txt') -Value 'created'
+	$code = Invoke-Reset
+	Check 'with the kit marker the key is removed' ($script:removed -eq 1)
+	Check 'the marker is cleared after removal' (-not (Test-Path (Join-Path $t.kit 'KIT-CREATED-CREDENTIAL.txt')))
+
 	Write-Host "Java preferences are compared by value, not by key count"
 	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
 	$key = 'HKCU:\Software\JavaSoft\Prefs\raccoon-kit-test'
