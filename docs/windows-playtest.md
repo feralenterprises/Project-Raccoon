@@ -44,9 +44,15 @@ fixtures\runelite-plugin.properties
 - Every client JVM gets `-Duser.home=<kit>\home` and `-Djava.io.tmpdir=<kit>\tmp`. RuneLite places
   its whole data directory (config, profiles, plugin state, side-loaded plugins, logs, game cache,
   developer sign-in) under `user.home\.runelite`; this is pinned as a CI fact on the 1.13.8 jar.
-- Before and after every client step the launcher snapshots `%USERPROFILE%\.runelite`
-  (relative path, size and write time of every file, digested) and the Java preferences registry
-  key, and writes `isolation.json` (PASS only if both are unchanged). RuneLite and the Jagex
+- Java preferences, normally the shared registry key `HKCU\Software\JavaSoft\Prefs` (used by
+  the client's FlatLaf UI library; the Windows runner showed a key being added), are redirected
+  to files in `<kit>\home\java-prefs` by `-Djava.util.prefs.PreferencesFactory=playtest.isolation.KitPreferencesFactory`
+  (own jar `lib\isolation\kit-isolation.jar`, not Raccoon code; R4 scans still find 0 Raccoon classes).
+- The injected game client also reads `%USERPROFILE%` (CI isolation scan), so besides
+  `%USERPROFILE%\.runelite` the launcher also watches `jagexcache`, the classic Jagex files
+  (`jagex_cl_oldschool_LIVE.dat`, `random.dat`, `.jagex_cache_32`) and new top-level profile
+  entries. Before and after every client step it snapshots these and the Java preferences key
+  and writes `isolation.json` (PASS only if all are unchanged). RuneLite and the Jagex
   Launcher must be closed (checked).
 - The owner's normal RuneLite installation, launcher, settings and credentials are never read.
   Jagex-account sign-in uses the developer client's own Jagex account panel; its data stays in
@@ -121,7 +127,20 @@ Machine, OS, CPU, JVM and heap are in every receipt's `environment` record.
 checklists. They start with "do not start until the reviewer approves". About 30 minutes; the
 owner never troubleshoots: any problem → screenshot to the reviewer.
 
-## 8. Decisions and risks for review
+## 8. Preparation evidence (CI, kit commit `a0ef3e4c`)
+
+Linux job: production tree identical to `aefb1d79`; retained official JAR re-verified (76,270 B,
+`5eb3405a…`, source archive 97/97); candidate dev JAR rebuilt byte-identical (75,907 B,
+`eebb6ecc…`); 0 playtest/test classes in either production JAR; R4 classpath 50 jars, 0 Raccoon
+entries; pinned 1.13.8 facts: `RUNELITE_DIR = user.home/.runelite`, `SIDELOADED_PLUGINS =
+RUNELITE_DIR/sideloaded-plugins` loaded only in developer mode (log line `Side-loading plugin {}`),
+`EventBus.register(Class, Consumer, float)`, Jagex auth plugin/panel present; empty R3 receipt →
+BLOCKED. Windows runner (not owner receipts): kit 491+ files, self-check PASS; R1 PASS (243
+tests, 0 skipped); R2 attempt in the genuine client PASS (66 adapter tests on the `Client` thread
+at the login screen; event callback p95 ≈0.003–0.005 ms, bank capture p95 ≈1.8–1.9 ms);
+launch path PASS (official JAR side-loaded and started); isolation PASS for every step.
+
+## 9. Decisions and risks for review
 
 1. **I03.** Read here as "the exact retained official JAR loads and runs in the genuine client",
    evidenced in R4. If the governing definition differs, the evaluator criteria change, not the
@@ -138,6 +157,11 @@ owner never troubleshoots: any problem → screenshot to the reviewer.
    off/on/off); a second client launch is an alternative if preferred.
 6. **Jagex accounts.** The developer client's Jagex account panel is used (pinned-client fact
    checked in CI); a non-Jagex account types its details. Sign-in data stays in the kit.
-7. **CI client runs** (R2 attempt and R4 launch path on a Windows runner) depend on the runner
-   having a desktop and network access to RuneLite and Jagex; if they cannot run there, they
-   are reported as such and are not receipts either way.
+7. **CI client runs** (R2 attempt and R4 launch path on a Windows runner) ran successfully, but
+   they are preparation evidence only, not receipts.
+8. **Jagex sign-in browser.** Whether the developer Jagex auth panel opens the system browser
+   (outside the kit) was not verified; any browser sign-in state would live in the owner's
+   browser, not in RuneLite. To confirm during review or the first owner session.
+9. **Not yet exercised anywhere:** R3 and R4 (they need a person and a genuine account), the
+   witness's R3 observation path in a logged-in client, and Windows PowerShell behaviour on the
+   owner's machine (CI used the same Windows PowerShell 5.1).
