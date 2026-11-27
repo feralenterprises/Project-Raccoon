@@ -147,11 +147,13 @@ public class EventAuthorityTest
 	}
 
 	@Test
-	public void observedHopWhileActiveMasksButFabricatesNoSuspension()
+	public void observedHopWhileActiveStartsTheSuspension()
 	{
+		// corrected at the 3e5cd549 re-review: the continuity deadline starts at the first
+		// observed transition, so the observation suspends (see ObservedTransitionTest)
 		gameState = "HOPPING";
 		assertEquals(KcResult.REJECTED_SCOPE, chat(500));
-		assertEquals("no hop fabricated", AccountState.ACTIVE, snap().state());
+		assertEquals(AccountState.SUSPENDED_CONTINUITY, snap().state());
 		assertNoReadableAuthority();
 		accounts.onGameState("HOPPING");
 		assertEquals(AccountState.SUSPENDED_CONTINUITY, snap().state());
@@ -246,7 +248,7 @@ public class EventAuthorityTest
 		gameState = "HOPPING";
 		hash = -1L;
 		assertEquals(KcResult.REJECTED_SCOPE, chat(500));
-		assertEquals(AccountState.ACTIVE, snap().state());
+		assertEquals(AccountState.SUSPENDED_CONTINUITY, snap().state());
 		accounts.onGameState("HOPPING");
 		hash = A;
 		phase("LOADING");
