@@ -149,6 +149,21 @@ Independently accepted at `7f0d580bcc825b4ce7d7c136fca61d8c90ad9597`: official J
 SHA-256 `81523f3bdadaae16da613d69f32d1d9ca0c447fc7afca2652b5ee39b19943eca`, artifact `15161991699`
 (run `45915565584`); now in continuing CI re-verification (`verify-recorded`).
 
+## FR-004 — Brutus kill count (K01–K05)
+
+**Status: implemented; awaiting independent review (not accepted).**
+
+| Item | Value |
+|---|---|
+| Design record (before code) | `5c6acb7b2762fb6ea558d4b264c3bd5980fe6113` (`docs/kill-count.md`; Burrow `eb962df3` KC files, read-only) |
+| Implementation | `05c4dfde9c0793bbd1ad2a0e62479dd3ca48968d` (both foundation runs failed resolving `lombok` from Maven Central before compiling; packaging passed) |
+| Source SHA | `e21a232681a2c3df159065405886be5d2b4dadd3` (+ CI retry on dependency-download failure only) |
+| Tests | 15 suites, **196 tests**, 0 failures/errors/skips (job `140241993607`); the second run (`140242010721`) failed resolving `lombok` on both attempts, no tests ran |
+| Verifier self-test | 40/40 |
+| Development JAR | **75,212 bytes**, SHA-256 `13934b87f98007b89df3ab333d56e2465ed815ea9f37884ddf9b58c3717ec1fa`, 58 classes, major 55 |
+| Official post-processed JAR | **75,576 bytes**, SHA-256 `e91ed9d869dc44030380d1537c8bfeb919a82c720d2070847bd94542e08f1f98` |
+| Retained | artifact `15162748952` (zip `sha256:252e3295b26e2b076175f9d994dc45ad730ec7d98cd01c41baefca5149781e82`), run `45918076749`; fresh-runner job `140242250366`, source archive 90/90 |
+
 ## Size history (SR-6)
 
 | Handback | Source | Dev JAR bytes | Dev JAR SHA-256 | Official JAR bytes | Official JAR SHA-256 | Δ official |
@@ -161,5 +176,7 @@ SHA-256 `81523f3bdadaae16da613d69f32d1d9ca0c447fc7afca2652b5ee39b19943eca`, arti
 | FR-002 re-review repair | `9e625d23` | 30,385 (+279) | `01223c91…fa823a3` | 30,749 | `6fefbf4b…ab5354` | +280 vs `aedb673d` |
 | FR-003 | `4d7ac595` | 63,214 (+32,829) | `ae387b9f…245e4e4` | 63,578 | `c33070c6…747de583` | +32,829 vs `9e625d23` (bank observation: 26 classes) |
 | FR-003 review repair | `312e5e8c` | 65,916 (+2,702) | `101a22b5…89a400d5` | 66,280 | `b27cfb32…9d9b51e3` | +2,702 vs `4d7ac595` |
+| FR-002/003 accepted | `7f0d580b` | 66,976 | `de7ce909…963b5` | 67,341 | `81523f3b…19943eca` | accepted receipt |
+| FR-004 | `e21a2326` | 75,212 (+8,236) | `13934b87…3717ec1fa` | 75,576 | `e91ed9d8…08f1f98` | +8,235 vs `7f0d580b` (Brutus KC: 7 classes) |
 
 Limits: foundation 262,144 bytes · release target < 8,000,000 bytes · ceiling 10,485,760 bytes.
