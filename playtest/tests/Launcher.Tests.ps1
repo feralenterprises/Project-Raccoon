@@ -11,6 +11,8 @@ $ErrorActionPreference = 'Stop'
 $script:failures = @()
 $script:passed = 0
 $realProfile = $env:USERPROFILE
+$realLocal = $env:LOCALAPPDATA
+$realRoaming = $env:APPDATA
 
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
 	if ($ok) { $script:passed++; Write-Host "  ok   $name" }
@@ -133,6 +135,19 @@ try {
 	$script:okResult = Invoke-Isolated $run { $script:bodyRan = $true }
 	Check 'an unreadable credential state stops the step before it runs' ((-not $script:bodyRan) -and ($script:okResult -eq $false))
 
+	Write-Host "a new top-level folder in LOCALAPPDATA or APPDATA (sign-in browser data elsewhere) latches"
+	$t = New-TestKit
+	$env:LOCALAPPDATA = Join-Path $t.root 'localappdata'; $env:APPDATA = Join-Path $t.root 'appdata'
+	New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA, $env:APPDATA | Out-Null
+	Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
+	$run = New-RunDir 'T'
+	$script:okResult = Invoke-Isolated $run { New-Item -ItemType Directory -Path (Join-Path $env:LOCALAPPDATA 'runelite_jagexauth.exe.WebView2') | Out-Null } @('windowsCredential')
+	Check 'a new LOCALAPPDATA top-level folder fails isolation even in R3' ($script:okResult -eq $false)
+	$run = New-RunDir 'T2'
+	Remove-Item -LiteralPath (Join-Path $t.kit 'KIT-STOPPED.txt') -Force
+	$script:okResult = Invoke-Isolated $run { New-Item -ItemType Directory -Path (Join-Path $env:APPDATA 'SomethingNew') | Out-Null }
+	Check 'a new APPDATA top-level folder fails isolation' ($script:okResult -eq $false)
+
 	Write-Host "R3 sign-in: only the absent-to-present key is an expected, recorded change"
 	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
 	$script:credCalls = 0
@@ -238,6 +253,8 @@ try {
 }
 finally {
 	$env:USERPROFILE = $realProfile
+	$env:LOCALAPPDATA = $realLocal
+	$env:APPDATA = $realRoaming
 	Remove-Item Env:\RACCOON_PLAYTEST_NO_MAIN -ErrorAction SilentlyContinue
 }
 
