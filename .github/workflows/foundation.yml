@@ -41,7 +41,15 @@ jobs:
       - name: Clean build and tests
         run: |
           set -o pipefail
-          ./gradlew --no-daemon --no-build-cache clean build 2>&1 | tee "${RUNNER_TEMP}/gradle-build.log"
+          if ./gradlew --no-daemon --no-build-cache clean build 2>&1 | tee "${RUNNER_TEMP}/gradle-build.log"; then exit 0; fi
+          # retry once ONLY for dependency download failures (never for compile or test failures)
+          if grep -q 'Could not resolve' "${RUNNER_TEMP}/gradle-build.log" && ! grep -qE 'tests completed|> Task :test FAILED|> Task :compileJava FAILED.*error|error:' "${RUNNER_TEMP}/gradle-build.log"; then
+            echo "::warning title=dependency download::retrying the build once after a dependency resolution failure"
+            sleep 20
+            ./gradlew --no-daemon --no-build-cache clean build 2>&1 | tee "${RUNNER_TEMP}/gradle-build.log"
+          else
+            exit 1
+          fi
 
       - name: Surface failed tests
         if: failure()
