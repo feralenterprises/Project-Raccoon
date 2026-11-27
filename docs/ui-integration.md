@@ -58,7 +58,7 @@ transitions.
 |---|---|
 | `BankObservationView` | `snapshot()`, `subscribe(listener)`, `bankOwnership(itemId)`, `combinedOwnership(itemId)`, `isCurrent(evidence)`, `fenced(evidence, work)`. Obtain via `BankObservationService.view()`. |
 | `BankSnapshot` | Immutable: `status()`, `reason()`, `current()` (only `QUALIFIED_CURRENT`), `historical()` (only `HISTORICAL`), `streak()`, `revision()`. |
-| `BankEvidence` | Contents (item id → quantity), `inventory()` / `equipment()` (`CarriedEvidence`, possibly unreported), `firstTick()` / `lastTick()`, `scope()`. |
+| `BankEvidence` | Contents (item id → quantity), `inventory()` / `equipment()` (`CarriedEvidence`, possibly unreported), `firstTick()` / `lastTick()` (**qualification** tick, not the latest revalidation; never present it as "last seen"), `generation()`, `scope()`. |
 | `Ownership` | `OWNED` (with quantity), `NOT_OWNED`, `UNKNOWN`. |
 
 Rules:
@@ -78,6 +78,27 @@ Rules:
    account stops being publishable, logs out, retires or changes, even if the bank was already closed.
 5. Bank listeners run on the client thread under the tracker lock: enqueue only, never block.
 6. Call `bankOwnership` on the client thread or accept that it reflects the moment of the call.
+
+## Lock order and safe disposal
+
+Locks, outermost first: lifecycle **delivery** lock → bank **tracker** lock → lifecycle **state**
+lock (a leaf). Lifecycle listeners run under the delivery lock; bank listeners run under the
+tracker lock.
+
+- **Never acquire an outer lock while holding an inner one.** From inside a bank listener (or a
+  `BankCaptureSource`), do not drive lifecycle inputs, subscribe to the lifecycle, or cancel a
+  lifecycle subscription: each takes the delivery lock.
+- `cancel()` on either kind of subscription waits for a delivery round in progress and, once it
+  returns, the listener is not running and is never called again. Cancelling from inside the same
+  kind of listener is re-entrant and safe (same round and self cancellation are covered by tests).
+- **Never wait for another thread from a listener** (for example `SwingUtilities.invokeAndWait`):
+  a UI thread cancelling at that moment would wait for the listener, and the listener for it.
+- **Disposal order for a panel or simulator view** (from the EDT or the client thread, never from
+  inside a listener of the other kind): cancel the bank subscription, then the lifecycle
+  subscription, then clear the consumer's state and show the neutral presentation. Values queued to
+  the EDT before disposal are still rejected by `ConsumerScopeGate` / `bank.isCurrent(evidence)`.
+- Scopes are namespaced per lifecycle instance: a value tagged with a scope from another instance
+  (for example a previous simulator run) is never accepted.
 
 ## Simulator
 

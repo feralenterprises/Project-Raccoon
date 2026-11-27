@@ -96,7 +96,11 @@ above (B05).
   sequence (id, quantity, kind), identical bank contents, and identical inventory and equipment
   evidence including whether each was reported. A changed valid sample starts a fresh streak at 1.
 - Qualification is announced once: unchanged revalidation keeps the same `BankEvidence` and
-  publishes nothing; any failure or change revokes it at once.
+  publishes nothing; any failure or change revokes it at once. `BankEvidence.lastTick()` is the
+  tick on which the streak **qualified**, not the latest successful revalidation.
+- Bank listeners use cancellation-aware registrations: a listener cancelled earlier in the same
+  round is skipped, self-cancellation is immediate, and `cancel()` from another thread waits for
+  the round in progress (`BankSubscriptionTest`).
 - Every qualification has a new evidence **generation**. Bank results are fenced by
   `BankObservationView.isCurrent(evidence)` / `fenced(evidence, work)`: false after the bank closes,
   a failed revalidation, a changed sample or any scope change, even when the account scope alone is

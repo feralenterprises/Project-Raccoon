@@ -29,6 +29,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public final class AccountLifecycle implements AccountLifecycleView, AccountDataRegistry
 {
 	private final Object lock = new Object();
+	/** Opaque per-instance namespace for every scope this lifecycle issues (never exposed). */
+	private final Object namespace = new Object();
 	private final Object deliveryLock = new Object();
 	private final CopyOnWriteArrayList<Registration> registrations = new CopyOnWriteArrayList<>();
 	private final Map<String, Slot<?>> loginSlots = new LinkedHashMap<>();
@@ -257,7 +259,7 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 		{
 			// revalidated after LOADING: same login and epoch, but a new authority, so scopes
 			// (callbacks, writers) from before the phase change never regain authority
-			currentScope = new AccountScope(sessionAccountId, sessionLoginToken, currentScope.epoch(), ++authorityCounter);
+			currentScope = new AccountScope(namespace, sessionAccountId, sessionLoginToken, currentScope.epoch(), ++authorityCounter);
 			identityFresh = true;
 			membership = world.membership();
 			publish();
@@ -336,7 +338,7 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 	private void openEpoch(WorldContext world)
 	{
 		clear(epochSlots);
-		currentScope = new AccountScope(sessionAccountId, sessionLoginToken, ++epochCounter, ++authorityCounter);
+		currentScope = new AccountScope(namespace, sessionAccountId, sessionLoginToken, ++epochCounter, ++authorityCounter);
 		membership = world.membership();
 		state = AccountState.ACTIVE;
 		identityFresh = true;

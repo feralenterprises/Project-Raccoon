@@ -55,7 +55,11 @@ public final class BankEvidence
 		return firstTick;
 	}
 
-	/** Tick on which the streak qualified (unchanged revalidation does not move it). */
+	/**
+	 * Tick on which the streak <em>qualified</em>. Not the latest successful revalidation: unchanged
+	 * revalidation keeps the same evidence and does not move this tick. Do not present it as the
+	 * latest observed tick.
+	 */
 	public long lastTick()
 	{
 		return lastTick;

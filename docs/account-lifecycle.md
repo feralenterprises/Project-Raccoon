@@ -98,6 +98,15 @@ cleared totals (data is never shown wrongly). Native confirmation belongs to FR-
   unknown future types, yields no observations.
 - Diagnostics (`toString` of every lifecycle type) never contain the account hash; tested.
 
+## Instance namespace
+
+Every scope carries the opaque, in-memory namespace of the `AccountLifecycle` instance that issued
+it. `equals`, `sameLogin`, `sameEpoch` and therefore `isCurrent`, slot `get(scope)` / `set`,
+`fenced`, `confirms` and `ConsumerScopeGate` reject a scope from any other instance, whatever its
+counters or identity (P1 isolation, `ScopeNamespaceTest`). The namespace is never printed or
+persisted; a restarted instance keeps its namespace but issues new login tokens, and a new instance
+(rebind) has a new namespace.
+
 ## Identity confirmation for observers
 
 `AccountLifecycleView.confirms(scope, reading)` returns true only if the scope is current and the

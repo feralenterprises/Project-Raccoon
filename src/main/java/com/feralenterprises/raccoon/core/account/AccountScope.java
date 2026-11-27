@@ -8,17 +8,22 @@ package com.feralenterprises.raccoon.core.account;
  * (writes, callbacks, queued work) must carry the scope it was produced under; it is accepted
  * only while {@link AccountLifecycleView#isCurrent(AccountScope)} holds.
  *
- * <p>{@code accountId} is a per-session ordinal, not the account hash.
+ * <p>{@code accountId} is a per-session ordinal, not the account hash. Every scope belongs to the
+ * namespace of the {@link AccountLifecycle} instance that issued it: scopes from different
+ * instances never compare equal and never carry authority in another instance, whatever their
+ * counters. The namespace is an opaque in-memory object; it is never printed or persisted.
  */
 public final class AccountScope
 {
+	private final Object namespace;
 	private final int accountId;
 	private final long loginToken;
 	private final long epoch;
 	private final long authority;
 
-	AccountScope(int accountId, long loginToken, long epoch, long authority)
+	AccountScope(Object namespace, int accountId, long loginToken, long epoch, long authority)
 	{
+		this.namespace = java.util.Objects.requireNonNull(namespace);
 		this.accountId = accountId;
 		this.loginToken = loginToken;
 		this.epoch = epoch;
@@ -61,7 +66,7 @@ public final class AccountScope
 	/** True when both scopes belong to the same login (possibly different epochs). */
 	public boolean sameLogin(AccountScope other)
 	{
-		return other != null && other.accountId == accountId && other.loginToken == loginToken;
+		return other != null && other.namespace == namespace && other.accountId == accountId && other.loginToken == loginToken;
 	}
 
 	@Override
@@ -72,13 +77,15 @@ public final class AccountScope
 			return false;
 		}
 		AccountScope s = (AccountScope) o;
-		return s.accountId == accountId && s.loginToken == loginToken && s.epoch == epoch && s.authority == authority;
+		return s.namespace == namespace && s.accountId == accountId && s.loginToken == loginToken && s.epoch == epoch
+			&& s.authority == authority;
 	}
 
 	@Override
 	public int hashCode()
 	{
-		return ((int) (authority ^ (authority >>> 32)) * 31 + (int) (epoch ^ (epoch >>> 32))) * 31 + accountId;
+		return (((int) (authority ^ (authority >>> 32)) * 31 + (int) (epoch ^ (epoch >>> 32))) * 31 + accountId) * 31
+			+ System.identityHashCode(namespace);
 	}
 
 	@Override

@@ -107,4 +107,42 @@ public class BankSubscriptionTest
 		h.ticks(3);
 		assertFalse("callback after cancel() returned", afterCancel.get());
 	}
+
+	@Test(timeout = 20_000)
+	public void externalCancelReturnsOnlyAfterTheVictimsOwnCallbackFinished() throws Exception
+	{
+		CountDownLatch inCallback = new CountDownLatch(1);
+		AtomicBoolean armed = new AtomicBoolean();
+		AtomicBoolean cancelReturned = new AtomicBoolean();
+		AtomicBoolean runningAfterCancel = new AtomicBoolean();
+		Subscription victim = h.tracker.subscribe(s ->
+		{
+			if (armed.get())
+			{
+				inCallback.countDown();
+				long until = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(300);
+				while (System.nanoTime() < until && !cancelReturned.get())
+				{
+					Thread.onSpinWait();
+				}
+				if (cancelReturned.get())
+				{
+					runningAfterCancel.set(true);
+				}
+			}
+		});
+		armed.set(true);
+		Thread driver = new Thread(h::tick);
+		driver.start();
+		assertTrue(inCallback.await(5, TimeUnit.SECONDS));
+		Thread canceller = new Thread(() ->
+		{
+			victim.cancel();
+			cancelReturned.set(true);
+		});
+		canceller.start();
+		canceller.join();
+		driver.join();
+		assertFalse("cancel() returned while the listener was still running", runningAfterCancel.get());
+	}
 }

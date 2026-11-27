@@ -34,7 +34,7 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 
 	private final AccountLifecycleView lifecycle;
 	private final AccountSlot<BankEvidence> history;
-	private final CopyOnWriteArrayList<BankObservationListener> listeners = new CopyOnWriteArrayList<>();
+	private final CopyOnWriteArrayList<Registration> registrations = new CopyOnWriteArrayList<>();
 	private final Subscription lifecycleSubscription;
 
 	private volatile BankSnapshot snapshot = new BankSnapshot(0, BankStatus.WAITING, BankReason.NONE, null, null, 0);
@@ -345,9 +345,9 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 		}
 		revision++;
 		snapshot = next;
-		for (BankObservationListener l : listeners)
+		for (Registration r : registrations)
 		{
-			l.onBankSnapshot(next);
+			r.offer(next);
 		}
 	}
 
@@ -362,17 +362,45 @@ public final class BankObservationTracker implements BankObservationView, AutoCl
 	@Override
 	public synchronized Subscription subscribe(BankObservationListener listener)
 	{
-		Objects.requireNonNull(listener);
-		listeners.add(listener);
-		listener.onBankSnapshot(snapshot);
-		// cancel waits for a delivery in progress (deliveries hold this lock): nothing after it returns
-		return () ->
+		Registration r = new Registration(Objects.requireNonNull(listener));
+		registrations.add(r);
+		r.offer(snapshot);
+		return r;
+	}
+
+	/**
+	 * Cancellation-aware registration. Deliveries hold the tracker lock and check the flag before
+	 * every callback, so a listener cancelled earlier in the same round (by another listener or
+	 * itself) is skipped, and {@code cancel()} from another thread waits for the round in progress.
+	 */
+	private final class Registration implements Subscription
+	{
+		private final BankObservationListener listener;
+		private volatile boolean cancelled;
+
+		Registration(BankObservationListener listener)
 		{
-			synchronized (this)
+			this.listener = listener;
+		}
+
+		/** Called with the tracker lock held. */
+		void offer(BankSnapshot s)
+		{
+			if (!cancelled)
 			{
-				listeners.remove(listener);
+				listener.onBankSnapshot(s);
 			}
-		};
+		}
+
+		@Override
+		public void cancel()
+		{
+			synchronized (BankObservationTracker.this)
+			{
+				cancelled = true;
+				registrations.remove(this);
+			}
+		}
 	}
 
 	@Override
