@@ -240,6 +240,23 @@ public class EventAuthorityTest
 	}
 
 	@Test
+	public void unknownIdentityWithHopSeenBeforeItsEventIsTolerated()
+	{
+		// as the tick's reconciliation would: the hop is witnessed, so an unknown read is not a loss
+		gameState = "HOPPING";
+		hash = -1L;
+		assertEquals(KcResult.REJECTED_SCOPE, chat(500));
+		assertEquals(AccountState.ACTIVE, snap().state());
+		accounts.onGameState("HOPPING");
+		hash = A;
+		phase("LOADING");
+		phase("LOGGED_IN");
+		tick();
+		assertEquals(loginA, snap().scope().get().loginToken());
+		assertEquals(3, kc.view().currentLoginTotal().getAsLong());
+	}
+
+	@Test
 	public void verifiedReconnectKeepsTheLogin()
 	{
 		phase("CONNECTION_LOST");

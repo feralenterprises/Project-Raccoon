@@ -114,12 +114,29 @@ reading is a verified identity of that scope's account. Observers (FR-003 bank c
 client identity before and after a capture and ask the lifecycle; the hash is never exposed and
 no second account authority exists.
 
-## Event-time validation
+## Event-time observation
 
 Events that arrive between game ticks (for example chat) use
-`AccountLifecycleService.scopeForEventNow()`: the current scope only if, at that moment, the live
-game state is `LOGGED_IN`, the live world is supported, and a fresh identity read is confirmed by
-`confirms(scope, reading)`. It validates only; the lifecycle still reconciles on its next tick.
+`AccountLifecycleService.scopeForEventNow()`. It reads the live game state, world and identity
+once and passes them to the central `AccountLifecycle.onEventObservation(...)`, which applies the
+existing rules at once, so a contradiction never leaves the previous scope readable:
+
+| Observed at the event | Active login | Held (suspended) login |
+|---|---|---|
+| LOGIN_SCREEN / authenticator / unrecognised phase | retire (`LOGOUT` / `AUTHENTICATOR` / `UNRECOGNIZED_CONTINUITY`) | retire, same reasons |
+| LOGGING_IN | retire (`UNRECOGNIZED_CONTINUITY`) | retire (`CONTINUITY_INTERRUPTED`) |
+| LOADING | mask (freshness lost) | no change |
+| HOPPING / CONNECTION_LOST | mask only; suspension starts from the client's own phase event or the tick's reconciliation | no change |
+| unsupported world | retire (`UNSUPPORTED_WORLD`) | retire (`UNSUPPORTED_WORLD`) |
+| verified identity of another account | retire (`DIFFERENT_ACCOUNT`) | retire (`DIFFERENT_ACCOUNT`) |
+| unknown or failed identity read | retire (`IDENTITY_LOST`), unless HOPPING / CONNECTION_LOST is observed | no change |
+
+An observation never activates a login, restores continuity, re-establishes freshness or counts
+toward the authentication limit; those still need a `LOGGED_IN` game tick. So A→B→A between ticks
+ends A's login at B, and A returns as a new login on the next tick. The scope is returned only if
+it is still current, the live state is `LOGGED_IN`, the world supported and `confirms(scope,
+reading)` holds for the identity read. Bank observation is tick-driven and runs after the tick's
+reconciliation, so it needs no event-time path.
 
 ## Threading and delivery
 

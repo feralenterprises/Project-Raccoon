@@ -59,18 +59,24 @@ public class AccountLifecycleService
 	}
 
 	/**
-	 * Scope for an event happening now (for example a chat message), only if the live client still
-	 * matches it: game state LOGGED_IN, supported world, and an identity read now that the central
-	 * lifecycle confirms for that scope. Validation only: nothing is changed, and the lifecycle
-	 * reconciles on its next tick. Client thread.
+	 * Scope for an event happening now (for example a chat message). The live game state, world
+	 * and identity are read once and given to the central lifecycle
+	 * ({@link AccountLifecycle#onEventObservation}), which ends or masks authority at once if they
+	 * contradict it; the scope is returned only if it is still current, the live state is
+	 * LOGGED_IN, the world supported, and the lifecycle confirms the identity read for it.
+	 * Client thread.
 	 */
 	public Optional<AccountScope> scopeForEventNow()
 	{
+		ClientPhase observed = ClientPhase.fromName(readGameState());
+		IdentityReading identity = readIdentity();
+		WorldContext world = readWorld();
+		lifecycle.onEventObservation(observed, identity, world, nanoTime.getAsLong());
 		Optional<AccountScope> scope = lifecycle.snapshot().scope();
 		if (!scope.isPresent()
-			|| ClientPhase.fromName(readGameState()) != ClientPhase.LOGGED_IN
-			|| !readWorld().isSupported()
-			|| !lifecycle.confirms(scope.get(), readIdentity()))
+			|| observed != ClientPhase.LOGGED_IN
+			|| !world.isSupported()
+			|| !lifecycle.confirms(scope.get(), identity))
 		{
 			return Optional.empty();
 		}

@@ -159,6 +159,74 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 		deliver();
 	}
 
+	/**
+	 * What the live client showed at an event between game ticks (for example a chat message).
+	 * Applies at once the existing rules that end or mask authority, so a contradiction never
+	 * leaves the previous scope readable:
+	 * <ul>
+	 * <li>a phase that differs from the last one seen is handled as that phase change would be
+	 * (logout, authenticator, LOGGING_IN during suspension and unrecognised phases retire;
+	 * LOADING masks), except that HOPPING or CONNECTION_LOST while active only masks: suspension
+	 * starts from the client's own phase event or the tick's reconciliation, never from an
+	 * observation;</li>
+	 * <li>an unsupported world retires an active or held login;</li>
+	 * <li>a verified identity other than the login's retires it, active or held;</li>
+	 * <li>an unverified identity retires an active login outside a witnessed transition.</li>
+	 * </ul>
+	 * An observation never activates a login, restores continuity, re-establishes freshness or
+	 * counts toward the authentication limit: those still need a {@code LOGGED_IN} game tick.
+	 */
+	public void onEventObservation(ClientPhase observed, IdentityReading identity, WorldContext world, long nowNanos)
+	{
+		Objects.requireNonNull(observed);
+		Objects.requireNonNull(identity);
+		Objects.requireNonNull(world);
+		synchronized (lock)
+		{
+			if (!running)
+			{
+				return;
+			}
+			expireIfDue(nowNanos);
+			boolean transition = observed == ClientPhase.HOPPING || observed == ClientPhase.CONNECTION_LOST;
+			if (observed != phase)
+			{
+				if (state == AccountState.ACTIVE && transition)
+				{
+					loseFreshness();
+				}
+				else
+				{
+					phase = observed;
+					if (state == AccountState.ACTIVE)
+					{
+						onPhaseWhileActive(observed, nowNanos);
+					}
+					else if (state == AccountState.SUSPENDED_CONTINUITY)
+					{
+						onPhaseWhileSuspended(observed);
+					}
+				}
+			}
+			if (state == AccountState.ACTIVE || state == AccountState.SUSPENDED_CONTINUITY)
+			{
+				if (!world.isSupported())
+				{
+					retire(RetireReason.UNSUPPORTED_WORLD);
+				}
+				else if (identity.isVerified() && identity.hash() != sessionHash)
+				{
+					retire(RetireReason.DIFFERENT_ACCOUNT);
+				}
+				else if (!identity.isVerified() && state == AccountState.ACTIVE && !transition)
+				{
+					retire(RetireReason.IDENTITY_LOST);
+				}
+			}
+		}
+		deliver();
+	}
+
 	/** Lets time-based limits expire promptly without other events. */
 	public void poll(long nowNanos)
 	{
