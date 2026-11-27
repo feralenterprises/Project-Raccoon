@@ -379,12 +379,14 @@ function Invoke-SelfCheck {
 	return $m
 }
 
-function Invoke-Guarded([scriptblock]$step) {
+function Invoke-Guarded([scriptblock]$guardedAction) {
+	# the parameter name must not collide with variables the steps use ($step): scriptblocks
+	# resolve names dynamically, so a parameter called $step would shadow the caller's
 	if (Test-Latched) {
 		Say "The kit stopped itself earlier (KIT-STOPPED.txt). Client steps are disabled; send the file and receipts to the reviewer." Red
 		return 1
 	}
-	try { return (& $step) }
+	try { return (& $guardedAction) }
 	catch { Say "Problem: $($_.Exception.Message)" Red; return 1 }
 }
 
