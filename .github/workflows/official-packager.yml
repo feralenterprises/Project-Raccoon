@@ -228,6 +228,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - commit: 3e5cd549a500d0364bafd2d14ac165a20f40df06 # FR-004 re-review (lifecycle authority) repair receipt
+            run: 45923139849
+            sha256: 37e5727a369b05f1f5d8fa51bed3d4f47e0a697c6283a76c6508d1cf5264f76b
+            bytes: 76337
           - commit: 0f983cffe542192bc998790ad73d3d6b5224eb54 # FR-004 review repair receipt
             run: 45920384599
             sha256: 07baa3e37a3a6324d887b5c8eed461eaa0629fca972dff6999bbcfcc2f2c99b2

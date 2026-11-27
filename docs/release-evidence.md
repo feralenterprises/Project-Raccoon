@@ -166,7 +166,7 @@ SHA-256 `81523f3bdadaae16da613d69f32d1d9ca0c447fc7afca2652b5ee39b19943eca`, arti
 
 ### FR-004 review repair (HOLD at `f556ebb5`: event-time validation)
 
-**Status: repaired; awaiting targeted independent re-review (not accepted).**
+**Status: three KC gain defects confirmed fixed at re-review; lifecycle authority defect found (see next section).**
 
 | Item | Value |
 |---|---|
@@ -177,6 +177,21 @@ SHA-256 `81523f3bdadaae16da613d69f32d1d9ca0c447fc7afca2652b5ee39b19943eca`, arti
 | Development JAR | **75,499 bytes**, SHA-256 `528e6d7235031d50f36b1b22968e5f83500c8194fe786e80b7be6c7f77d6301c`, 58 classes, major 55 |
 | Official post-processed JAR | **75,863 bytes**, SHA-256 `07baa3e37a3a6324d887b5c8eed461eaa0629fca972dff6999bbcfcc2f2c99b2`, 71 entries |
 | Retained | artifact `15164481747` (zip `sha256:0a4e18156bc8365ce33f22f3e7a45204d58ad4db16b43592e26af664d1c82a35`), run `45920384599`; fresh-runner job `140249662936`, source archive 91/91 |
+
+### FR-004 targeted re-review repair (lifecycle authority at event time)
+
+**Status: FR-002 integration reopened, FR-003 dependency HOLD, FR-004 HOLD (re-review of `0f983cff`); repair below awaiting targeted re-review (not accepted).**
+
+| Item | Value |
+|---|---|
+| Red regressions | `20b7e63a5dfeea43cbf49e747a02fb4ccfbf36aa`: `EventAuthorityTest` (new) and corrected `BrutusKcEventValidationTest`; 219 tests completed, **18 failed** in both foundation runs (`140257544870`, `140257530787`); guards for verified hop, reconnect, no restoration and no activation passed |
+| Source SHA | `3e5cd549a500d0364bafd2d14ac165a20f40df06` (`AccountLifecycle.onEventObservation`; `scopeForEventNow` reads once and uses it) |
+| Tests | 17 suites, **220 tests**, 0 failures/errors/skips, both foundation runs (`140258295136`, `140258311207`) |
+| Verifier self-test | 40/40 |
+| Development JAR | **75,974 bytes**, SHA-256 `aad0eb63589bd5145558fdb18cb23ac7a0292369b0fb2c11043db8acfe230ad2`, 58 classes, major 55 |
+| Official post-processed JAR | **76,337 bytes**, SHA-256 `37e5727a369b05f1f5d8fa51bed3d4f47e0a697c6283a76c6508d1cf5264f76b`, 71 entries |
+| Retained | artifact `15164758300` (zip `sha256:83744d07c4742f4c0fdf9fe38355e7f0139a4df0953edcfa6461f00966ed3f28`), run `45923139849`; fresh-runner job `140262308717`, source archive 92/92 |
+| Infrastructure | historical `cb3bc8b1` packaging leg failed resolving protobuf/lombok from Maven Central; re-run green (`140262308782`) |
 
 ## Size history (SR-6)
 
@@ -193,5 +208,6 @@ SHA-256 `81523f3bdadaae16da613d69f32d1d9ca0c447fc7afca2652b5ee39b19943eca`, arti
 | FR-002/003 accepted | `7f0d580b` | 66,976 | `de7ce909…963b5` | 67,341 | `81523f3b…19943eca` | accepted receipt |
 | FR-004 | `e21a2326` | 75,212 (+8,236) | `13934b87…3717ec1fa` | 75,576 | `e91ed9d8…08f1f98` | +8,235 vs `7f0d580b` (Brutus KC: 7 classes) |
 | FR-004 review repair | `0f983cff` | 75,499 (+287) | `528e6d72…d6301c` | 75,863 | `07baa3e3…2c99b2` | +287 vs `e21a2326` (event-time validation) |
+| FR-004 re-review repair | `3e5cd549` | 75,974 (+475) | `aad0eb63…e230ad2` | 76,337 | `37e5727a…5264f76b` | +474 vs `0f983cff` (central event-time observation) |
 
 Limits: foundation 262,144 bytes · release target < 8,000,000 bytes · ceiling 10,485,760 bytes.
