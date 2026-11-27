@@ -163,6 +163,7 @@ try {
 	$script:allowSeen = @{}
 	function Invoke-Isolated([string]$runDir, [scriptblock]$body, [string[]]$allowCreated = @()) { $script:allowSeen[(Split-Path $runDir -Leaf).Split('-')[0]] = (@($allowCreated) -join ','); return $true }
 	function Invoke-Evaluate([string]$runDir, [string[]]$evalArgs) { return 0 }
+	function Initialize-Sideload($m, [string]$run) { return (Join-Path $run 'client.log') }
 	[void](Invoke-R2); [void](Invoke-R3); [void](Invoke-R4)
 	Check 'R3 allows only the SessionStore key' ($script:allowSeen['R3'] -eq 'windowsCredential') ("seen: " + (($script:allowSeen.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '; '))
 	Check 'R2 has no allowance' ($script:allowSeen['R2'] -eq '')
