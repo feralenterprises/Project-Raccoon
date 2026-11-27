@@ -121,6 +121,42 @@ jobs:
           unzip -l "$cj" | grep -iE 'jagex.*(auth|account)|(auth|account).*jagex' | head -n 12 || true
           test "$side" -gt 0 && test "$home" -gt 0 && test "$prio" -gt 0
 
+      - name: Jagex sign-in facts (pinned 1.13.8 developer Jagex Accounts panel)
+        run: |
+          python3 -I - build/playtest-kit/kit/lib/client <<'PY'
+          import glob, hashlib, os, re, sys, zipfile
+          lib = sys.argv[1]
+          jars = sorted(glob.glob(os.path.join(lib, "*.jar")))
+          # 1. which client classes reference the session store and the Windows credential store
+          users = {}
+          for jar in jars:
+              with zipfile.ZipFile(jar) as z:
+                  for n in z.namelist():
+                      if n.endswith(".class"):
+                          d = z.read(n)
+                          for k in (b"net/runelite/client/rs/auth/SessionStore", b"WindowsCredentialStore", b"RuneLite SessionStore"):
+                              if k in d:
+                                  users.setdefault(k.decode(), []).append(n[:-6].replace("/", "."))
+          for k, v in users.items():
+              print(f"::notice title=sign-in facts::{k} referenced by {sorted(set(v))}")
+          # 2. the native helper the panel runs: JagexAuth-Win-<arch>.exe
+          for jar in jars:
+              with zipfile.ZipFile(jar) as z:
+                  for n in z.namelist():
+                      if "jagexauth/JagexAuth-" in n:
+                          data = z.read(n)
+                          print(f"::notice title=sign-in helper::{os.path.basename(jar)}!{n} {len(data)} B sha256={hashlib.sha256(data).hexdigest()}")
+                          if n.endswith(".exe"):
+                              text = data.decode("latin-1") + " " + data.decode("utf-16-le", "ignore")
+                              keys = ["WebView2", "EBWebView", "CreateCoreWebView2", "UserDataFolder", "ShellExecute", "localhost", "127.0.0.1",
+                                      "redirect_uri", "account.jagex.com", "auth.jagex.com", "id_token", "prompt", "LOCALAPPDATA", "APPDATA",
+                                      "CredWrite", "CredRead", "RegSetValue", "--prompt"]
+                              found = {k: len(re.findall(re.escape(k), text)) for k in keys}
+                              print(f"::notice title=sign-in helper strings::{found}")
+                              urls = sorted(set(re.findall(r"https?://[A-Za-z0-9./_:-]{6,80}", text)))[:20]
+                              print(f"::notice title=sign-in helper urls::{urls}")
+          PY
+
       - name: Locations outside user.home referenced by the client (isolation scan)
         run: |
           python3 -I - build/playtest-kit/kit/lib <<'PY'
