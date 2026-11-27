@@ -4,8 +4,12 @@ You need a second account for step 10: one you own, or one whose owner has agree
 
  1. On the login screen, click the wrench (Configuration) in the right-hand sidebar, search for
     "Project Raccoon" and switch it OFF. Do not touch "Raccoon Playtest Witness".
- 2. Sign in. Jagex account: Jagex account icon in the sidebar, "Add Jagex Account", sign in,
-    pick your character, "Play Now". Older account: type your details on the login screen.
+ 2. Sign in. Jagex account: click "Jagex Accounts" in the right-hand sidebar, then
+    "Add Jagex Account". A Jagex sign-in window opens (inside the test client, not your web
+    browser); sign in there. Then click your character in the panel and log in to the game.
+    RuneLite saves an encryption key named "RuneLite SessionStore" in Windows Credential
+    Manager; the kit expects this and menu option 7 removes it afterwards.
+    Older (non-Jagex) account: "Use Legacy Account", then type your details on the login screen.
  3. Wait 20 seconds in the game, then switch "Project Raccoon" back ON. Wait 30 seconds.
  4. Open your bank (enter your PIN if asked) and leave it open for at least 1 minute.
  5. With the bank still open: click the bank's worn-equipment button to change the view, wait

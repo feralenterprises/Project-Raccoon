@@ -167,6 +167,11 @@ tests, 0 skipped); R2 attempt in the genuine client PASS (66 adapter tests on th
 at the login screen; event callback p95 ≈0.003–0.005 ms, bank capture p95 ≈1.8–1.9 ms);
 launch path PASS (official JAR side-loaded and started); isolation PASS for every step.
 
+## 8a. Jagex sign-in (FR-006 authentication preparation)
+
+Mechanism, source evidence and the Credential Manager / AppData isolation additions:
+`docs/jagex-authentication.md`. R3 stays on HOLD until Solis clears that procedure.
+
 ## 9. Review decisions (Solis, review of `a0ef3e4c`) and remaining items
 
 Applied: I03 = load and disable; R3 failed revalidation = genuine open-bank failed read after

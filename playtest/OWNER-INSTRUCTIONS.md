@@ -19,9 +19,12 @@ What it is designed to do
   again. Then send that file and the receipts to the reviewer.
 - The Project Raccoon plugin only reads what the game already shows you. It does not click,
   move, type or change anything in the game, and it sends nothing over the internet.
-- The kit does not ask for or store your password. When you sign in with a Jagex account, the
-  test client's sign-in is kept inside this folder (menu option 7 deletes it); the reviewer
-  will tell you beforehand whether the sign-in also opens your normal web browser.
+- The kit does not ask for or store your password. You sign in only in Jagex's own sign-in
+  window, which the test client opens (not your normal web browser). The test client keeps the
+  resulting sign-in inside this folder, plus one encryption key that RuneLite stores in Windows
+  Credential Manager under the name "RuneLite SessionStore". The kit expects that key during the
+  play step only, and menu option 7 deletes the folder's sign-in data and that key (only if the
+  kit saw it being created).
 - Results ("receipts") record states, counts and timings. They do not record account names,
   passwords, player chat, bank contents or your account's identifier.
 
