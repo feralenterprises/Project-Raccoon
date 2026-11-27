@@ -1,0 +1,110 @@
+name: foundation
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  foundation:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 11.0.33+10
+
+      - name: Record source SHA
+        run: |
+          echo "FOUNDATION_EVIDENCE=${RUNNER_TEMP}/foundation-evidence.txt" >> "$GITHUB_ENV"
+          echo "source.sha=${GITHUB_SHA}" | tee "${RUNNER_TEMP}/foundation-evidence.txt"
+
+      - name: Development JDK matches pin
+        run: java tools/verify/FoundationVerifier.java jdk .
+
+      - name: Verifier self-test
+        run: java tools/verify/FoundationVerifier.java selftest .
+
+      - name: Source, pin and governance checks
+        run: java tools/verify/FoundationVerifier.java source .
+
+      - name: Clean build and tests
+        run: |
+          set -o pipefail
+          log1="${RUNNER_TEMP}/gradle-build-attempt1.log"
+          log2="${RUNNER_TEMP}/gradle-build-attempt2.log"
+          if ./gradlew --no-daemon --no-build-cache clean build 2>&1 | tee "$log1"; then exit 0; fi
+          # Retry once ONLY for dependency transport/download failures. Never when the log shows a
+          # compile error, any test task result, or a test failure; verifier steps are separate
+          # and never retried.
+          transport='Could not (GET|HEAD) |Connection reset|Connection refused|Read timed out|connect timed out|Received status code 5[0-9][0-9]|Remote host terminated the handshake|UnknownHostException'
+          if grep -q 'Could not resolve' "$log1" && grep -qE "$transport" "$log1" \
+            && ! grep -qE '(^|[^a-z])error:|> Task :test|tests completed' "$log1"; then
+            echo "::warning title=dependency download::retrying the build once after a dependency transport failure (both logs uploaded)"
+            sleep 20
+            ./gradlew --no-daemon --no-build-cache clean build 2>&1 | tee "$log2"
+          else
+            exit 1
+          fi
+
+      - name: Surface failed tests
+        if: failure()
+        run: |
+          python3 -I - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          for f in glob.glob("build/test-results/test/*.xml"):
+              for case in ET.parse(f).getroot().iter("testcase"):
+                  for bad in list(case.findall("failure")) + list(case.findall("error")):
+                      msg = (bad.get("message") or bad.text or "").replace("%", "%25").replace("\r", "").replace("\n", "%0A")[:900]
+                      print(f"::error title=test {case.get('classname')}.{case.get('name')}::{msg}")
+          PY
+          for f in "${RUNNER_TEMP}"/gradle-build-attempt*.log; do
+            [ -f "$f" ] || continue
+            msg=$(grep -E 'FAILED|FAILURE|error:|What went wrong|Could not|Exception' "$f" | head -n 40 | cut -c1-300 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=gradle $(basename "$f")::${msg:-no matching lines}"
+          done
+
+      - name: Test counts
+        run: java tools/verify/FoundationVerifier.java tests build/test-results/test
+
+      - name: Performance (deterministic simulation; native measurements are FR-006)
+        run: |
+          f=build/perf/fr005-performance.txt
+          test -f "$f" || { echo "::error title=performance::no report at $f"; exit 1; }
+          cp "$f" "${RUNNER_TEMP}/fr005-performance.txt"
+          while IFS= read -r line; do echo "::notice title=perf::${line}"; done < "$f"
+          cat "$f" >> "$FOUNDATION_EVIDENCE"
+          test "$(grep -c 'result=PASS' "$f")" -eq 3
+          ! grep -q 'result=FAIL' "$f"
+
+      - name: Artifact bytecode, contents, size and dependency direction
+        run: java tools/verify/FoundationVerifier.java artifact . build/libs/project-raccoon.jar
+
+      - name: Reproducibility (second clean build must give identical JAR)
+        run: |
+          first=$(sha256sum build/libs/project-raccoon.jar | cut -d' ' -f1)
+          ./gradlew --no-daemon --no-build-cache clean jar
+          second=$(sha256sum build/libs/project-raccoon.jar | cut -d' ' -f1)
+          echo "artifact.rebuildSha256=${second}" | tee -a "$FOUNDATION_EVIDENCE"
+          test "$first" = "$second"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: foundation-local-evidence
+          path: |
+            build/libs/project-raccoon.jar
+            ${{ runner.temp }}/foundation-evidence.txt
+            ${{ runner.temp }}/gradle-build-attempt*.log
+            ${{ runner.temp }}/fr005-performance.txt
+          if-no-files-found: warn

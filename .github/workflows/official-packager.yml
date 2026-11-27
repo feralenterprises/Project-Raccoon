@@ -1,0 +1,307 @@
+name: official-packager
+
+# FR-001: package an exact public commit with the official Plugin Hub packager in strict,
+# non-upload mode, and retain the post-processed JAR with its evidence.
+# Nothing is uploaded or published: no upload credentials exist in this workflow, and the
+# packager only uploads when REPO_CREDS and REPO_ROOT are both set.
+
+on:
+  push:
+    branches:
+      - "**"
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Full 40-hex commit of feralenterprises/Project-Raccoon to package (default: this run's commit)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # head = this push; cb3bc8b1 = accepted FR-000 source named by roadmap issue #1
+        target: [head, cb3bc8b1942377de8e95711d8d57e45b6b1f003c]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: source
+          persist-credentials: false
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 11.0.33+10
+
+      - name: Load pins and target commit
+        env:
+          INPUT_COMMIT: ${{ github.event.inputs.commit }}
+          MATRIX_TARGET: ${{ matrix.target }}
+        run: |
+          set -eu
+          pin() { sed -n "s/^$1=//p" source/release/pins.properties | sed 's/\\:/:/g'; }
+          if [ "$MATRIX_TARGET" = head ]; then default=$GITHUB_SHA; else default=$MATRIX_TARGET; fi
+          commit="${INPUT_COMMIT:-$default}"
+          echo "$commit" | grep -Eq '^[0-9a-f]{40}$' || { echo "::error::commit must be a full 40-hex SHA"; exit 1; }
+          {
+            echo "TARGET_COMMIT=$commit"
+            echo "RUNTIME=$GITHUB_WORKSPACE/runtime"
+            echo "RETAIN=$GITHUB_WORKSPACE/retained"
+            echo "FOUNDATION_EVIDENCE=$GITHUB_WORKSPACE/retained/fr-001-evidence.txt"
+            for k in packager.commit packager.releaseTag packager.bundleUrl packager.bundleSha256 \
+                     pluginhub.commit runelite.client.version packaging.internalName packaging.repository \
+                     artifact.maxBytes release.targetBytes release.ceilingBytes jdk.version; do
+              echo "PIN_$(echo "$k" | tr '.a-z' '_A-Z')=$(pin "$k")"
+            done
+          } >> "$GITHUB_ENV"
+          mkdir -p "$GITHUB_WORKSPACE/runtime" "$GITHUB_WORKSPACE/retained/logs"
+
+      - name: Confirm no upload credentials are present
+        run: |
+          set -eu
+          for v in REPO_CREDS REPO_ROOT SIGNING_KEY PACKAGE_IS_PR; do
+            if [ -n "$(printenv "$v" || true)" ]; then echo "::error::$v is set; refusing to run"; exit 1; fi
+          done
+          echo "upload.mode=disabled (REPO_CREDS, REPO_ROOT, SIGNING_KEY unset)" | tee "$FOUNDATION_EVIDENCE"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: runelite/plugin-hub
+          ref: f7ed590e4e2599d81b3bd7ffeaec62314178ae3c
+          path: runtime/plugin-hub
+          persist-credentials: false
+
+      - name: Fetch and verify official packager bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: runtime
+        run: |
+          set -eu
+          test "$(git -C plugin-hub rev-parse HEAD)" = "$PIN_PLUGINHUB_COMMIT"
+          tag_commit=$(git ls-remote https://github.com/runelite/plugin-hub-tooling.git "refs/tags/$PIN_PACKAGER_RELEASETAG" | cut -f1)
+          echo "packager.tag=$PIN_PACKAGER_RELEASETAG -> $tag_commit" | tee -a "$FOUNDATION_EVIDENCE"
+          test "$tag_commit" = "$PIN_PACKAGER_COMMIT" || { echo "::error::packager tag $PIN_PACKAGER_RELEASETAG is $tag_commit, pinned $PIN_PACKAGER_COMMIT"; exit 1; }
+          curl --location --fail --retry 4 --max-time 120 --output bundle.tar.zst "$PIN_PACKAGER_BUNDLEURL"
+          observed=$(sha256sum bundle.tar.zst | cut -d' ' -f1)
+          published=$(gh api "repos/runelite/plugin-hub-tooling/releases/tags/$PIN_PACKAGER_RELEASETAG" \
+            --jq '.assets[] | select(.name=="bundle.tar.zst") | .digest' | sed 's/^sha256://')
+          echo "packager.bundleSha256=$observed (GitHub published digest: ${published:-none})" | tee -a "$FOUNDATION_EVIDENCE"
+          echo "::notice title=evidence packager.bundleSha256::$observed (published ${published:-none})"
+          if [ -n "$published" ] && [ "$observed" != "$published" ]; then
+            echo "::error::bundle digest $observed does not match GitHub published digest $published"; exit 1
+          fi
+          if [ -z "$PIN_PACKAGER_BUNDLESHA256" ]; then
+            echo "::error::BLOCKED: packager.bundleSha256 is not pinned; observed $observed"; exit 1
+          fi
+          test "$observed" = "$PIN_PACKAGER_BUNDLESHA256" || { echo "::error::bundle $observed != pinned $PIN_PACKAGER_BUNDLESHA256"; exit 1; }
+
+      - name: Extract packager bundle
+        working-directory: runtime
+        run: |
+          set -eu -o pipefail
+          { zstd --version; tar --zstd -xf bundle.tar.zst; ls -la; } 2>&1 | tee "$RETAIN/logs/extract.log"
+          hub_rl=$(tr -d '[:space:]' < plugin-hub/runelite.version)
+          echo "pluginhub.runeliteVersion=$hub_rl" | tee -a "$FOUNDATION_EVIDENCE"
+          test "$hub_rl" = "$PIN_RUNELITE_CLIENT_VERSION" || { echo "::error::plugin-hub builds RuneLite $hub_rl, pinned $PIN_RUNELITE_CLIENT_VERSION"; exit 1; }
+
+      - name: Prepare packager runtime (official prepare.sh)
+        working-directory: runtime
+        run: |
+          set -o pipefail
+          ./prepare.sh 2>&1 | tee "$RETAIN/logs/prepare.log"
+
+      - name: Write local plugin marker (not submitted anywhere)
+        working-directory: runtime
+        run: |
+          set -eu
+          marker="plugin-hub/plugins/$PIN_PACKAGING_INTERNALNAME"
+          if [ -e "$marker" ]; then echo "::error::internal name $PIN_PACKAGING_INTERNALNAME already exists in plugin-hub"; exit 1; fi
+          printf 'repository=%s\ncommit=%s\n' "$PIN_PACKAGING_REPOSITORY" "$TARGET_COMMIT" > "$marker"
+          cat "$marker" | tee -a "$FOUNDATION_EVIDENCE"
+          # The packager reads the marker's git history (as for a Plugin Hub PR). Commit it in
+          # this runner-local checkout only; it has no credentials and is never pushed.
+          git -C plugin-hub add "plugins/$PIN_PACKAGING_INTERNALNAME"
+          git -C plugin-hub -c user.name=fr-001 -c user.email=fr-001@invalid -c commit.gpgsign=false \
+            commit -q -m "local FR-001 marker (not submitted)"
+          echo "pluginhub.localMarkerCommit=$(git -C plugin-hub rev-parse HEAD) (parent $PIN_PLUGINHUB_COMMIT, never pushed)" | tee -a "$FOUNDATION_EVIDENCE"
+          remote=$(git ls-remote "$PIN_PACKAGING_REPOSITORY" | cut -f1 | grep -cx "$TARGET_COMMIT" || true)
+          echo "packaging.commitAdvertisedByPublicRemote=$remote ref(s)" | tee -a "$FOUNDATION_EVIDENCE"
+
+      - name: Run official packager (strict, non-upload)
+        working-directory: runtime
+        env:
+          FORCE_BUILD: ${{ env.PIN_PACKAGING_INTERNALNAME }}
+        run: |
+          set -o pipefail
+          java -version 2>&1 | tee -a "$FOUNDATION_EVIDENCE"
+          java -XX:+UseParallelGC -cp package.jar net.runelite.pluginhub.packager.Packager 2>&1 | tee "$RETAIN/packager-console.log"
+
+      - name: Retain post-processed artifact and verify
+        if: always()
+        run: |
+          set -eu
+          n="$PIN_PACKAGING_INTERNALNAME"
+          for f in "$n.jar" "$n.log" "$n.zip"; do
+            if [ -f "/tmp/jars/$f" ]; then cp "/tmp/jars/$f" "$RETAIN/"; fi
+          done
+          if [ -f /tmp/manifest_diff ]; then cp /tmp/manifest_diff "$RETAIN/manifest_diff.json"; fi
+          if [ ! -f "$RETAIN/$n.jar" ]; then echo "::error::no post-processed JAR produced"; exit 1; fi
+          bytes=$(stat -c %s "$RETAIN/$n.jar")
+          sha=$(sha256sum "$RETAIN/$n.jar" | cut -d' ' -f1)
+          {
+            echo "source.commit=$TARGET_COMMIT"
+            echo "packager=$PIN_PACKAGER_RELEASETAG ($PIN_PACKAGER_COMMIT)"
+            echo "pluginhub.commit=$PIN_PLUGINHUB_COMMIT"
+            echo "runelite.version=$PIN_RUNELITE_CLIENT_VERSION"
+            echo "official.jar.bytes=$bytes"
+            echo "official.jar.sha256=$sha"
+            echo "limits=foundation $PIN_ARTIFACT_MAXBYTES, target $PIN_RELEASE_TARGETBYTES, ceiling $PIN_RELEASE_CEILINGBYTES"
+          } | tee -a "$FOUNDATION_EVIDENCE"
+          test "$bytes" -le "$PIN_RELEASE_CEILINGBYTES"
+          java source/tools/verify/FoundationVerifier.java packaged source "$RETAIN/$n.jar" "$RETAIN/$n.log" "$TARGET_COMMIT"
+          (cd "$RETAIN" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Surface logs on failure
+        if: failure()
+        run: |
+          for f in "$RETAIN"/logs/*.log "$RETAIN"/packager-console.log /tmp/jars/*.log; do
+            [ -f "$f" ] || continue
+            msg=$(tail -n 60 "$f" | cut -c1-300 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=log $(basename "$f")::$msg"
+          done
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: fr-001-official-package-${{ env.TARGET_COMMIT }}
+          path: retained/
+          retention-days: 90
+          if-no-files-found: warn
+
+  verify-retained:
+    # Fresh runner: download each receipt this run retained and verify it from storage.
+    needs: package
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [head, cb3bc8b1942377de8e95711d8d57e45b6b1f003c]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 11.0.33+10
+
+      - name: Resolve commit
+        env:
+          MATRIX_TARGET: ${{ matrix.target }}
+          INPUT_COMMIT: ${{ github.event.inputs.commit }}
+        run: |
+          if [ "$MATRIX_TARGET" = head ]; then default=$GITHUB_SHA; else default=$MATRIX_TARGET; fi
+          echo "TARGET_COMMIT=${INPUT_COMMIT:-$default}" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: fr-001-official-package-${{ env.TARGET_COMMIT }}
+          path: receipt
+
+      - name: Verify retained receipt
+        run: source/tools/verify/verify-retained.sh receipt "$TARGET_COMMIT" source
+
+  verify-recorded:
+    # Re-verify receipts already reported in handbacks, downloaded from their original runs.
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - commit: aefb1d79f680ef2c184e24b82e487db08d05c879 # FR-005 audit receipt
+            run: 45930961714
+            sha256: 5eb3405a5be817340a626f4625859f47ec9591afc10e792322dd290d3b456bd5
+            bytes: 76270
+          - commit: 41eb2aced6472363f836ffd0aa07e1fb0d0a828b # FR-004 re-review (observed transition deadline) repair receipt
+            run: 45926719072
+            sha256: 807089c91bc8651ded67b3ffb5b5ec13cc765c6d69f48653a8774d9601f65d0c
+            bytes: 76238
+          - commit: 3e5cd549a500d0364bafd2d14ac165a20f40df06 # FR-004 re-review (lifecycle authority) repair receipt
+            run: 45923139849
+            sha256: 37e5727a369b05f1f5d8fa51bed3d4f47e0a697c6283a76c6508d1cf5264f76b
+            bytes: 76337
+          - commit: 0f983cffe542192bc998790ad73d3d6b5224eb54 # FR-004 review repair receipt
+            run: 45920384599
+            sha256: 07baa3e37a3a6324d887b5c8eed461eaa0629fca972dff6999bbcfcc2f2c99b2
+            bytes: 75863
+          - commit: e21a232681a2c3df159065405886be5d2b4dadd3 # FR-004 receipt
+            run: 45918076749
+            sha256: e91ed9d869dc44030380d1537c8bfeb919a82c720d2070847bd94542e08f1f98
+            bytes: 75576
+          - commit: 7f0d580bcc825b4ce7d7c136fca61d8c90ad9597 # accepted FR-002 + FR-003 receipt
+            run: 45915565584
+            sha256: 81523f3bdadaae16da613d69f32d1d9ca0c447fc7afca2652b5ee39b19943eca
+            bytes: 67341
+          - commit: 312e5e8c54487354d9d957e04ea7a92aa04fcee8 # FR-003 review repair receipt
+            run: 45913262497
+            sha256: b27cfb326b16f3bcff5c7e51970f8147ecab4d305352fdc3ce7e2f219d9b51e3
+            bytes: 66280
+          - commit: 4d7ac59561514d83207bf8cd5b01a5e513d10822 # FR-003 receipt
+            run: 45910387217
+            sha256: c33070c601249dc3ee5ffb394a59df7f88ac1e4fb3468f5235ebd5ea747de583
+            bytes: 63578
+          - commit: 9e625d23c130f822607d6e0a6740032e324f6113 # FR-002 re-review repair receipt
+            run: 45907558652
+            sha256: 6fefbf4b600edcec7054b00b8371c987c73c5d4db728d0ff6a5dce0a75ab5354
+            bytes: 30749
+          - commit: aedb673dc081dcd85ed533188122919bbf2f371c # FR-002 audit repair receipt
+            run: 45906081364
+            sha256: 3b41e7edf54515e134ec668339b5a06a613464e7e9e2e4205bf69b3b291ae8fe
+            bytes: 30469
+          - commit: 9257838fe5227d06bd7482f425bbff1c1a3cc431 # FR-002 handback receipt
+            run: 45904083364
+            sha256: aa490c6046f16336e49cf1a8b51f000872898a4b794c8783b5876fc4d01ced23
+            bytes: 27763
+          - commit: cb3bc8b1942377de8e95711d8d57e45b6b1f003c # accepted FR-001 receipt
+            run: 45901758622
+            sha256: 509fef9d67fd1cb2188562b73e761e8356be48c97dda2fd76225de88e5b69e3d
+            bytes: 1690
+          - commit: f3a73150c624749785e271646bef3c5f4a43c861
+            run: 45893596318
+            sha256: cdba98e78707174d2045924d608b2a2e3591aa091cfec58f82be3111d5664f4f
+            bytes: 1691
+          - commit: 65aac3d21d40698f0bbc3c67976afc5707fb280a
+            run: 45893790340
+            sha256: 25a3eed6acd5b48e67f6878a48dca059c5e11d36281ea361a57b523966b10ec2
+            bytes: 1690
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 11.0.33+10
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: fr-001-official-package-${{ matrix.commit }}
+          path: receipt
+          run-id: ${{ matrix.run }}
+          github-token: ${{ github.token }}
+
+      - name: Verify recorded receipt
+        run: source/tools/verify/verify-retained.sh receipt "${{ matrix.commit }}" source "${{ matrix.sha256 }}" "${{ matrix.bytes }}"
