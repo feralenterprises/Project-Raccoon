@@ -9,6 +9,8 @@ Base: accepted common framework `6684228b`. Lane D writes only `panel/pathfinder
   -cp 'build/classes/java/main:build/classes/java/r02:build/classes/java/r02test' \
   com.feralenterprises.raccoon.playtest.r02.panel.pathfinder.PathfinderLaneTests \
   /path/to/Project-Raccoon-R02-Lane-Inputs.zip /path/to/Project-Raccoon-R02 [evidence-dir]
+# Quests & Diaries: same classpath and arguments, class
+#   com.feralenterprises.raccoon.playtest.r02.panel.quests.QuestsLaneTests
 ```
 
 Inputs stay private: the accepted Lane Inputs ZIP (SHA-256 `1f6a821d…cece`, refused if different, every file checked
