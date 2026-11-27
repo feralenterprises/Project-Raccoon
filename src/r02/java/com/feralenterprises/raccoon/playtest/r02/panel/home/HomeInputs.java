@@ -25,6 +25,10 @@ public final class HomeInputs {
 	final long tunaXpTotal;
 	/** {@code ivyLeft}: the frozen {@code .feature .foliage} hanging vines on the Next Opportunity card. */
 	final BufferedImage stone, wood, plaster, ivyLeft, opportunitiesIcon, snapshotIcon;
+
+	/** Frozen {@code --stone} and {@code --wood} (PR-032) textures, for other Lane A pages. */
+	public BufferedImage stone() { return stone; }
+	public BufferedImage wood() { return wood; }
 	final LaneInputs lane;
 	/** Frozen presentation icon key per account and saved-record id ({@code shared/saved-records.json}); display only. */
 	private final java.util.Map<String, String> recordIcons = new java.util.HashMap<>();

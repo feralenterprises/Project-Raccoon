@@ -209,11 +209,12 @@ public final class AdventureUi {
 	 * Frozen {@code .card} with a timber {@code .sectionhead} band ({@code feature}: plaster band, gold edge). A
 	 * collapsible section toggles its body from the band (click, Enter or Space) like the frozen {@code details}.
 	 */
-	static class Section extends JPanel implements HeightForWidth {
+	public static class Section extends JPanel implements HeightForWidth {
 		final Band band;
-		final StackPanel body = new StackPanel(0);
+		public final StackPanel body = new StackPanel(0);
 		private final Art art;
 		private final boolean feature;
+		private boolean plain;
 
 		Section(UiContext ui, Art art, String title, BufferedImage icon, boolean feature, boolean collapsible) {
 			super(new StackLayout(0));
@@ -227,7 +228,14 @@ public final class AdventureUi {
 			add(body);
 		}
 
-		boolean expanded() { return body.isVisible(); }
+		/** Frozen Feral Files {@code .ff-card}: timber heading over a plain dark gradient (no stone texture). */
+		public static Section plain(UiContext ui, BufferedImage stone, BufferedImage wood, String title) {
+			Section s = new Section(ui, new Art(stone, wood, null), title, null, false, false);
+			s.plain = true;
+			return s;
+		}
+
+		public boolean expanded() { return body.isVisible(); }
 
 		void setExpanded(boolean open) {
 			body.setVisible(open);
@@ -247,6 +255,12 @@ public final class AdventureUi {
 			Graphics2D g2 = prepare(g);
 			java.awt.Shape clip = new java.awt.geom.RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 6, 6);
 			g2.clip(clip);
+			if (plain) {
+				g2.setPaint(new GradientPaint(0, 0, new Color(0x28, 0x24, 0x1c, 0xe8), 0, getHeight(), new Color(0x20, 0x1d, 0x18, 0xed)));
+				g2.fillRect(0, 0, getWidth(), getHeight());
+				g2.dispose();
+				return;
+			}
 			tile(g2, art.stone, getWidth(), getHeight(), 160);
 			g2.setPaint(new GradientPaint(0, 0, new Color(0x29, 0x25, 0x1d, 0xed), getWidth(), getHeight() / 3f,
 				new Color(0x25, 0x22, 0x19, 0xe8)));

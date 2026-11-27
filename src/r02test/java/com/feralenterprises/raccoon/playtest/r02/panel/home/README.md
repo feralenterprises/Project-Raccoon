@@ -16,7 +16,7 @@ Inputs stay private and outside the repository: the accepted Lane Inputs ZIP (SH
 (its own `SHA256SUMS.txt`, read by the shared `FrozenPackageAssets`). The optional evidence directory receives offscreen
 PNGs, which contain private frozen art: do not publish them. Use `;` classpath separators on Windows.
 
-Suites: `panel.home.HomeLaneTests`, `panel.activity.ActivityLaneTests` (same arguments).
+Suites: `panel.home.HomeLaneTests`, `panel.activity.ActivityLaneTests`, `panel.files.FilesLaneTests` (same arguments).
 
 Host wiring (shared owner): load `AdventurePanels.registrations(laneInputsZip, frozenReview)` off the EDT and pass them
 to the existing `R02Composition` on the EDT. Home is content-only; the `FULL` environment (header scene, vines, burrow-entrance footer

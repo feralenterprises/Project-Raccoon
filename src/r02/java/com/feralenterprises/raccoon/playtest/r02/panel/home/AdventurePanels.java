@@ -2,6 +2,7 @@ package com.feralenterprises.raccoon.playtest.r02.panel.home;
 
 import com.feralenterprises.raccoon.playtest.r02.panel.activity.ActivityInputs;
 import com.feralenterprises.raccoon.playtest.r02.panel.activity.ActivityPanels;
+import com.feralenterprises.raccoon.playtest.r02.panel.files.FilesPanels;
 import com.feralenterprises.raccoon.playtest.r02.shared.RouteRegistration;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -20,8 +21,10 @@ public final class AdventurePanels {
 	public static List<RouteRegistration> registrations(Path laneInputsZip, Path frozenReview) throws IOException {
 		LaneInputs lane = LaneInputs.open(laneInputsZip);
 		List<RouteRegistration> out = new ArrayList<>();
-		out.add(HomePanels.registration(HomeInputs.load(lane)));
+		HomeInputs home = HomeInputs.load(lane);
+		out.add(HomePanels.registration(home));
 		out.add(ActivityPanels.registration(ActivityInputs.load(lane, frozenReview)));
+		out.add(FilesPanels.registration(lane, home));
 		return Collections.unmodifiableList(out);
 	}
 }
