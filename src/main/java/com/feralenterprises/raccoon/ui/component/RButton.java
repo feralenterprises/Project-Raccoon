@@ -24,7 +24,7 @@ import javax.swing.JToolTip;
  * Framework button: normal, hover, pressed, focused, selected and disabled states; optional artwork icon above the
  * live label. Labels wrap instead of clipping. No action logic lives here.
  */
-public class RButton extends JButton implements HeightForWidth {
+public class RButton extends JButton implements HeightForWidth, TextFit {
 	private static final int ICON_H = 32;
 	private final UiContext ctx;
 	private ArtKey icon;
@@ -53,6 +53,15 @@ public class RButton extends JButton implements HeightForWidth {
 		FontMetrics fm = ctx.metrics(FontRole.BODY);
 		int lines = Math.max(1, TextWrap.wrap(getText(), fm, width - 2 * Tokens.PAD_X).size());
 		return lines * fm.getHeight() + 2 * Tokens.PAD_Y + 2 + (hasIcon() ? ICON_H + 2 : 0);
+	}
+
+	/** The text wraps, so it is cut only when its longest word does not fit on one line. */
+	@Override
+	public int requiredTextWidth() {
+		FontMetrics fm = ctx.metrics(FontRole.BODY);
+		int longest = 0;
+		for (String word : String.valueOf(getText()).split("\\s+")) longest = Math.max(longest, fm.stringWidth(word));
+		return longest + 2 * Tokens.PAD_X + 2;
 	}
 
 	@Override

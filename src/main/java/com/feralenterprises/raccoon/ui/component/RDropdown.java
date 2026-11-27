@@ -36,7 +36,7 @@ import javax.swing.plaf.basic.ComboPopup;
  *
  * @param <T> option type; shown through the label function, compared with {@code equals}
  */
-public class RDropdown<T> extends JComboBox<T> implements HeightForWidth, ContextAware {
+public class RDropdown<T> extends JComboBox<T> implements HeightForWidth, ContextAware, TextFit {
 	private static final int ARROW_W = 16;
 
 	private final UiContext ctx;
@@ -123,6 +123,13 @@ public class RDropdown<T> extends JComboBox<T> implements HeightForWidth, Contex
 		java.awt.FontMetrics fm = ctx.metrics(FontRole.BODY);
 		for (int i = 0; i < getItemCount(); i++) w = Math.max(w, fm.stringWidth(label.apply(getItemAt(i))));
 		return new Dimension(w + 12 + ARROW_W, heightForWidth(0));
+	}
+
+	/** The selected label on one line plus the arrow (the closed control does not wrap). */
+	@Override
+	public int requiredTextWidth() {
+		T sel = selected();
+		return (sel == null ? 0 : ctx.metrics(FontRole.BODY).stringWidth(label.apply(sel))) + 12 + ARROW_W;
 	}
 
 	@Override

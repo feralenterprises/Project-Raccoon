@@ -31,6 +31,8 @@ import javax.imageio.ImageIO;
 public final class FrozenPackageAssets implements R02Assets {
 	private static final Pattern SPRITE = Pattern.compile("\"([A-Za-z0-9_'\\-]+)\\.png\"\\s*:\\s*\"data:image/png;base64,([A-Za-z0-9+/=]+)\"");
 
+	private static final Pattern CSS_IMAGE = Pattern.compile("url\\(\"data:image/png;base64,([A-Za-z0-9+/=]+)\"\\)");
+
 	private final Path root;
 	private final Map<String, String> sums;
 	private final Map<String, Optional<BufferedImage>> cache = new ConcurrentHashMap<>();
@@ -51,22 +53,79 @@ public final class FrozenPackageAssets implements R02Assets {
 	/** Files or portraits that failed verification or decoding, with the reason. */
 	public Map<String, String> refused() { return Collections.unmodifiableMap(refused); }
 
+	/**
+	 * Frozen art by id: the packaged file when there is one; otherwise the stylesheet's embedded copy whose SHA-256 is
+	 * exactly the id's {@code production_sha256} in the verified {@code frozen-manifest.csv} (PR-028, the {@code --stone}
+	 * texture, ships only embedded). No other binding is attempted.
+	 */
 	@Override public BufferedImage art(String artId) {
 		return cached("art:" + artId, () -> {
 			try (java.util.stream.Stream<Path> s = Files.list(root.resolve("source/frozen-assets"))) {
 				Optional<Path> f = s.filter(p -> p.getFileName().toString().startsWith(artId + "_")).findFirst();
-				return f.isPresent() ? verified("source/frozen-assets/" + f.get().getFileName()) : null;
+				if (f.isPresent()) return verified("source/frozen-assets/" + f.get().getFileName());
 			}
+			String want = manifestSha().get(artId);
+			byte[] b = want == null ? null : embeddedCss().get(want);
+			return b == null ? null : decode(b);
 		});
 	}
 
-	/** Packaged sprite file first (XP Stash set), then the embedded Outfitter/Bank set ({@code i<id>.png}). */
+	private volatile Map<String, String> manifest;
+	private volatile Map<String, byte[]> cssImages;
+
+	/** id -> production_sha256 from the verified frozen manifest. */
+	private Map<String, String> manifestSha() {
+		Map<String, String> m = manifest;
+		if (m != null) return m;
+		Map<String, String> out = new HashMap<>();
+		byte[] b = verifiedBytes("source/frozen-manifest.csv");
+		if (b != null) {
+			String[] lines = new String(b, StandardCharsets.UTF_8).split("\r?\n");
+			java.util.List<String> head = java.util.Arrays.asList(lines[0].split(","));
+			int id = head.indexOf("id"), sha = head.indexOf("production_sha256");
+			for (int i = 1; i < lines.length && id >= 0 && sha >= 0; i++) {
+				String[] c = lines[i].split(",");
+				if (c.length > Math.max(id, sha) && c[sha].matches("[0-9a-f]{64}")) out.put(c[id], c[sha]);
+			}
+		}
+		manifest = Collections.unmodifiableMap(out);
+		return manifest;
+	}
+
+	/** sha256 -> bytes of every {@code url("data:image/png;base64,...")} in the verified page. */
+	private Map<String, byte[]> embeddedCss() {
+		Map<String, byte[]> m = cssImages;
+		if (m != null) return m;
+		Map<String, byte[]> out = new HashMap<>();
+		byte[] html = verifiedBytes("Project-Raccoon-R02.html");
+		if (html != null) {
+			Matcher x = CSS_IMAGE.matcher(new String(html, StandardCharsets.UTF_8));
+			while (x.find()) { byte[] b = Base64.getDecoder().decode(x.group(1)); out.put(sha256(b), b); }
+		}
+		cssImages = Collections.unmodifiableMap(out);
+		return cssImages;
+	}
+
+	private volatile LaneInputsArchive lanePack;
+
+	/**
+	 * Adds the verified lane item-sprite pack ({@code shared/osrs-items/<id>.png}) as the last item source, for frozen
+	 * bank items the package has no sprite for (Lane C: 12788, 23971, 23975, 23979, 25867). Same exact ID only.
+	 */
+	public FrozenPackageAssets withLaneSprites(LaneInputsArchive pack) {
+		lanePack = pack;
+		cache.keySet().removeIf(k -> k.startsWith("item:"));
+		return this;
+	}
+
+	/** Packaged sprite file first (XP Stash set), then the embedded Outfitter/Bank set ({@code i<id>.png}), then the lane pack. */
 	@Override public BufferedImage item(int itemId) {
 		if (itemId < 0) return null;
 		return cached("item:" + itemId, () -> {
 			String rel = "source/osrs-item-sprites/" + itemId + ".png";
 			if (sums.containsKey(rel)) return verified(rel);
 			byte[] b = embedded().get("i" + itemId);
+			if (b == null && lanePack != null) b = lanePack.bytes("shared/osrs-items/" + itemId + ".png");
 			return b == null ? null : decode(b);
 		});
 	}
@@ -149,7 +208,7 @@ public final class FrozenPackageAssets implements R02Assets {
 		return i;
 	}
 
-	static String sha256(byte[] b) {
+	public static String sha256(byte[] b) {
 		try {
 			StringBuilder s = new StringBuilder();
 			for (byte x : MessageDigest.getInstance("SHA-256").digest(b)) s.append(String.format("%02x", x));

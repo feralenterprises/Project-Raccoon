@@ -13,12 +13,14 @@ import com.feralenterprises.raccoon.playtest.r02.shared.R02Environment;
 import com.feralenterprises.raccoon.playtest.r02.shared.RouteContext;
 import com.feralenterprises.raccoon.playtest.r02.shared.RouteId;
 import com.feralenterprises.raccoon.playtest.r02.shared.RouteRegistration;
+import com.feralenterprises.raccoon.ui.component.StateNotice;
 import com.feralenterprises.raccoon.ui.lifecycle.Disposable;
 import com.feralenterprises.raccoon.ui.shell.Destination;
 import com.feralenterprises.raccoon.ui.shell.Navigator;
 import com.feralenterprises.raccoon.ui.shell.Placeholder;
 import com.feralenterprises.raccoon.ui.shell.RaccoonShell;
 import com.feralenterprises.raccoon.ui.shell.RouteRequest;
+import com.feralenterprises.raccoon.ui.theme.TextScale;
 import com.feralenterprises.raccoon.ui.theme.UiContext;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -67,6 +69,9 @@ public final class R02Composition implements Disposable {
 		for (RouteId r : RouteId.values()) shell.register(r.id(), R02Environment.of(r).frameworkEnvironment(), () -> page(r));
 		shell.addClearListener(onClear);
 		shell.attachAccountSource(source, this::shellDisposed);
+		// Shared appearance changes -> shared text scale, whoever makes them (Settings, host). The initial scale is left
+		// as the caller set it. Closed with the shell.
+		appearanceSubscription = fixtures.onAppearance(this::applyTextScale);
 		fixtures.setOnScopeChange(this::scopeChanged);
 	}
 
@@ -85,6 +90,19 @@ public final class R02Composition implements Disposable {
 	public void start(FixtureSnapshot first) {
 		requireEdt();
 		if (!fixtures.publish(first)) throw new IllegalArgumentException("initial snapshot refused (generation " + first.generation() + ")");
+	}
+
+	/**
+	 * Hides every scoped value now (host account-scope guard): retires the binding generation so queued publications
+	 * are refused, clears held values, closes page subscriptions and shows the shared "unavailable" notice. The next
+	 * publication must carry a new scope, which discards the old pages. EDT only; no-op once disposed.
+	 */
+	public void suspend() {
+		requireEdt();
+		if (disposed || shell.isDisposed()) return;
+		fixtures.bind();
+		shell.hideAccount(source, StateNotice.Presence.UNAVAILABLE);
+		closePageSubscriptions();
 	}
 
 	private void scopeChanged(FixtureSnapshot s) {
@@ -113,12 +131,19 @@ public final class R02Composition implements Disposable {
 		shellDisposed();
 	}
 
+	private void applyTextScale(Appearance a) {
+		ui.setTextScale(a.size() == Appearance.Size.LARGE ? TextScale.LARGE : TextScale.DEFAULT);
+	}
+
 	private void shellDisposed() {
 		if (disposed) return;
 		disposed = true;
+		if (appearanceSubscription != null) appearanceSubscription.close();
 		closePageSubscriptions();
 		fixtures.setOnScopeChange(s -> { });
 	}
+
+	private Subscription appearanceSubscription;
 
 	private static void requireEdt() {
 		if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("EDT only");
@@ -147,5 +172,6 @@ public final class R02Composition implements Disposable {
 		@Override public void navigate(RouteId r) { nav.navigate(r.id()); }
 		@Override public void navigate(RouteId r, RouteRequest.Param p, String id) { nav.navigate(RouteRequest.of(r.id(), p, id)); }
 		@Override public void dispatch(FixtureAction a) { fixtures.dispatch(a); }
+		@Override public void setAppearance(Appearance a) { fixtures.setAppearance(a); }
 	}
 }

@@ -1,0 +1,73 @@
+// R02 native playtest host (DEV ONLY). Owner build: compiles the host against the real RuneLite client 1.13.8 and
+// resolves the client's runtime classpath (needs repo.runelite.net and Maven Central once). It never starts the
+// client: the playtest launcher does that, after checking every JAR below against playtest/runelite-1.13.8.lock.
+// Never part of the foundation build, the framework JAR or a Plugin Hub package.
+plugins { id 'java' }
+
+def pins = new Properties()
+file('../../ui-pins.properties').withInputStream { pins.load(it) }
+def jdk = System.getProperty('java.version')
+if (jdk != pins['jdk.version']) throw new GradleException("JDK ${jdk} is not the pinned Temurin ${pins['jdk.version']}; set JAVA_HOME to it.")
+def runeLiteVersion = pins['runelite.client.version']
+
+repositories {
+	maven { url = 'https://repo.runelite.net'; content { includeGroupByRegex('net\\.runelite.*') } }
+	mavenCentral()
+}
+
+configurations { clientRuntime }
+
+dependencies {
+	compileOnly group: 'net.runelite', name: 'client', version: runeLiteVersion
+	clientRuntime group: 'net.runelite', name: 'client', version: runeLiteVersion
+}
+
+sourceSets {
+	main {
+		// The unchanged framework, the R02 module (shared contract, fixtures, lanes, host core) and the RuneLite glue.
+		java.srcDirs = ['src/main/java', '../../src/main/java', '../../src/r02/java']
+		resources.srcDirs = []
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+	options.release.set(11)
+	// Warnings are shown, not fatal here: the same sources already compile with -Werror in the root build.
+	options.compilerArgs += ['-Xlint:all', '-Xlint:-serial', '-Xlint:-processing']
+}
+
+tasks.withType(AbstractArchiveTask).configureEach {
+	preserveFileTimestamps = false
+	reproducibleFileOrder = true
+}
+
+tasks.named('jar') { archiveFileName = 'raccoon-r02-playtest-host.jar' }
+
+def sha256 = { File f ->
+	def d = java.security.MessageDigest.getInstance('SHA-256')
+	f.withInputStream { i -> byte[] b = new byte[65536]; int n; while ((n = i.read(b)) > 0) d.update(b, 0, n) }
+	d.digest().collect { String.format('%02x', it) }.join()
+}
+
+tasks.register('playtestClasspath') {
+	description = 'Builds the host JAR and writes build/playtest/classpath.txt (SHA-256, coordinate, path) for the launcher.'
+	dependsOn 'jar'
+	def out = layout.buildDirectory.file('playtest/classpath.txt')
+	outputs.upToDateWhen { false }
+	doLast {
+		def commit = ['git', '-C', file('../..').absolutePath, 'rev-parse', 'HEAD'].execute().text.trim()
+		def lines = ['# Raccoon R02 playtest resolved classpath (generated; not committed)', "# commit ${commit}".toString()]
+		def hostJar = tasks.named('jar').get().archiveFile.get().asFile
+		lines << "${sha256(hostJar)} host ${hostJar.absolutePath}".toString()
+		configurations.clientRuntime.resolvedConfiguration.resolvedArtifacts.sort { it.moduleVersion.id.toString() + ':' + (it.classifier ?: '') }.each { a ->
+			def id = a.moduleVersion.id
+			def coord = "${id.group}:${id.name}:${id.version}" + (a.classifier ? ":${a.classifier}" : '')
+			lines << "${sha256(a.file)} ${coord} ${a.file.absolutePath}".toString()
+		}
+		def f = out.get().asFile
+		f.parentFile.mkdirs()
+		f.text = lines.join('\n') + '\n'
+		println "Resolved ${lines.size() - 3} RuneLite classpath JARs; host JAR ${sha256(hostJar).take(12)}; wrote ${f}"
+	}
+}

@@ -32,7 +32,8 @@ public final class R02Environment {
 	static {
 		put(RouteId.HOME, Texture.FIELDSTONE, 160, Environment.FULL, PANEL_DEFAULT);
 		put(RouteId.OUTFIT, Texture.FIELDSTONE, 160, Environment.FULL, PANEL_DEFAULT + " (encounter scenes via --of-* region art)");
-		put(RouteId.ACTIVITY, Texture.APPEARANCE_SURFACE, 180, Environment.FULL,
+		// Lane A finding: the frozen #activity page draws its own environment hero; no shared header scene or footer.
+		put(RouteId.ACTIVITY, Texture.APPEARANCE_SURFACE, 180, Environment.PLAIN,
 			"linear-gradient(0deg,color-mix(in srgb,var(--ink) 88%,transparent),color-mix(in srgb,var(--ink) 70%,transparent)),var(--surface) center/180px repeat");
 		put(RouteId.BANK, Texture.FIELDSTONE, 160, Environment.PLAIN,
 			"linear-gradient(90deg,#12100b70,transparent 13% 87%,#12100b70),linear-gradient(#29251b25,#211d1755),var(--stone) center/160px repeat");
@@ -76,7 +77,7 @@ public final class R02Environment {
 	public Texture texture() { return texture; }
 	/** Tile size in CSS px at 1x; 0 means cover. */
 	public int tileSize() { return tileSize; }
-	/** Framework page environment: FULL keeps the environmental header band (Home, Outfitter, Current Activity). */
+	/** Framework page environment: FULL keeps the environmental header band (Home, Outfitter). */
 	public Environment frameworkEnvironment() { return framework; }
 	public String frozenCss() { return frozenCss; }
 }

@@ -27,7 +27,7 @@ import java.util.function.IntConsumer;
  * Single-choice selector. Options share a row while their labels fit, otherwise the selector flows into more rows,
  * so it never overflows horizontally at 225 px or with Large text. Mouse and keyboard (arrows, Home, End).
  */
-public class SegmentedSelector extends RComponent {
+public class SegmentedSelector extends RComponent implements TextFit {
 	private final List<String> options;
 	private final List<IntConsumer> listeners = new CopyOnWriteArrayList<>();
 	private int selected;
@@ -112,6 +112,10 @@ public class SegmentedSelector extends RComponent {
 		for (int i = 0; i < options.size(); i++) if (cell(i, getWidth()).contains(x, y)) return i;
 		return -1;
 	}
+
+	/** One column needs the widest option on one line (a cell shows only its first wrapped line). */
+	@Override
+	public int requiredTextWidth() { return minimumContentWidth(); }
 
 	@Override
 	public int minimumContentWidth() {

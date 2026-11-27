@@ -23,7 +23,7 @@ public final class TestFixtures {
 			new ItemDef(1511, "Logs", true, "Materials"),
 			new ItemDef(359, "Raw tuna", true, "Materials"),
 			new ItemDef(21512, "Bird house", true, "Materials"),
-			new ItemDef(10828, "Helm of Neitiznot", false, "Gear"),
+			new ItemDef(10828, "Helm of Neitiznot", true, "Gear"),
 			new ItemDef(1409, "Iban's staff", false, "Gear"),
 			new ItemDef(12494, "Ancient chaps", true, "Gear"),
 			new ItemDef(8013, "Teleport to house", true, "Supplies"),
@@ -34,9 +34,11 @@ public final class TestFixtures {
 				new EncounterDef("vorkath", "Vorkath", "Regular", "Elite", "vorkath"),
 				new EncounterDef("tormented-demons", "Tormented Demons", "Demi", "Hard", "tormented-demons"),
 				new EncounterDef("brutus", "Brutus", "Regular", "Easy", "brutus"),
-				new EncounterDef("dagannoth-rex", "Dagannoth Rex", "Regular", "Hard", "dagannoth-rex"),
-				new EncounterDef("dagannoth-prime", "Dagannoth Prime", "Regular", "Hard", "dagannoth-prime"),
-				new EncounterDef("dagannoth-supreme", "Dagannoth Supreme", "Regular", "Hard", "dagannoth-supreme"),
+				// Same shape as the frozen registry (Lane D finding): one Kings encounter with three separate KC keys (D-18).
+				// Other encounters stay out of this tiny fixture: lane tests add their own, and the assembled run uses the
+				// full frozen registry (FrozenDataset, 60 encounters).
+				new EncounterDef("dagannoth-kings", "Dagannoth Kings", "Regular", "Hard",
+					Arrays.asList("dagannoth-rex", "dagannoth-prime", "dagannoth-supreme")),
 				new EncounterDef("hespori", "Hespori", "Demi", null, "hespori")));
 	}
 

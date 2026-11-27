@@ -27,6 +27,11 @@ import javax.swing.SwingConstants;
  */
 public final class PageHost extends JPanel implements Scrollable {
 	public static final int HEADER_BAND = 44;
+	/**
+	 * Client property a page sets to {@code Boolean.TRUE} to be stretched to the visible height when its content is
+	 * shorter, so its own background reaches the footer reserve instead of showing the host surface below it.
+	 */
+	public static final String FILL_VIEWPORT = "raccoon.page.fillViewport";
 
 	private final UiContext ctx;
 	private final JComponent content;
@@ -72,7 +77,9 @@ public final class PageHost extends JPanel implements Scrollable {
 	@Override
 	public void doLayout() {
 		int w = getWidth();
-		content.setBounds(Tokens.INSET, topReserve(), w - 2 * Tokens.INSET, contentHeight(w));
+		int h = contentHeight(w);
+		if (Boolean.TRUE.equals(content.getClientProperty(FILL_VIEWPORT))) h = Math.max(h, getHeight() - topReserve() - footerReserve());
+		content.setBounds(Tokens.INSET, topReserve(), w - 2 * Tokens.INSET, h);
 	}
 
 	@Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }

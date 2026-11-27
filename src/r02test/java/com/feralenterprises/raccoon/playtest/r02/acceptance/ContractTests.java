@@ -61,11 +61,14 @@ public final class ContractTests {
 		SwingUtilities.invokeAndWait(() -> {
 			try { run(); } catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
 		});
+		try { SharedGapTests.run(ContractTests::check); } catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
+		try { FrozenDataTests.literals(ContractTests::check); } catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
 		if (pkg != null) {
 			try { assets(); } catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
+			try { FrozenDataTests.run(pkg, ContractTests::check); } catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
 		}
 		System.out.println("R02 ContractTests: " + passed + " passed, " + failures.size() + " failed"
-			+ (pkg == null ? " (frozen package asset checks SKIPPED)" : ""));
+			+ (pkg == null ? " (frozen package asset and dataset checks SKIPPED)" : ""));
 		for (String f : failures) System.out.println("FAIL " + f);
 		System.exit(failures.isEmpty() ? 0 : 1);
 	}
@@ -226,10 +229,13 @@ public final class ContractTests {
 		Registry r = TestFixtures.registry();
 		check("registry: exact names (D-09, D-15)", "Bird house".equals(r.itemName(21512)) && "Iban's staff".equals(r.itemName(1409))
 			&& "Ancient chaps".equals(r.itemName(12494)) && "Teleport to house".equals(r.itemName(8013)) && "Fishing potion(2)".equals(r.itemName(153)));
-		check("registry: Helm of Neitiznot untradeable (D-10)", !r.item(10828).get().tradeable());
+		check("registry: Helm of Neitiznot tradeable (D-10, OSRS Wiki: Tradeable Yes)", r.item(10828).get().tradeable());
 		check("registry: unregistered item never guessed", "Item 42".equals(r.itemName(42)));
-		check("registry: three separate King counts (D-18)", r.encounter("dagannoth-rex").get().kcKey().equals("dagannoth-rex")
-			&& r.encounter("dagannoth-prime").isPresent() && r.encounter("dagannoth-supreme").isPresent());
+		check("registry: Kings grouped with three separate counts (D-18), as in the frozen registry",
+			r.encounter("dagannoth-kings").get().kcKeys().equals(Arrays.asList("dagannoth-rex", "dagannoth-prime", "dagannoth-supreme"))
+			&& !r.encounter("dagannoth-rex").isPresent());
+		check("registry: the tiny fixture leaves other encounters to the lanes (no duplicates when they add their own)",
+			!r.encounter("barrows").isPresent() && !r.encounter("giant-mole").isPresent());
 		check("registry: unranked difficulty stays null", r.encounter("hespori").get().difficulty() == null);
 		check("registry: duplicates refused", throwsIt(() -> new Registry(Arrays.asList(r.item(995).get(), r.item(995).get()), Collections.emptyList())));
 	}

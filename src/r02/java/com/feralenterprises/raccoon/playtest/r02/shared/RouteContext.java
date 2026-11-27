@@ -34,4 +34,10 @@ public interface RouteContext {
 	void navigate(RouteId route);
 	void navigate(RouteId route, RouteRequest.Param param, String id);
 	void dispatch(FixtureAction action);
+
+	/**
+	 * Changes the shared appearance (Settings). Every page receives it through {@link #onAppearance}. Added for Lane E,
+	 * whose Settings page previously needed the whole dispatcher. Implementations that cannot change it refuse.
+	 */
+	default void setAppearance(Appearance appearance) { throw new UnsupportedOperationException("appearance is read-only here"); }
 }

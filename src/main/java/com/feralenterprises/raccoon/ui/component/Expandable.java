@@ -33,11 +33,16 @@ public class Expandable extends JPanel implements com.feralenterprises.raccoon.u
 	private boolean expanded;
 
 	public Expandable(UiContext ctx, String title, JComponent body) {
+		this(ctx, title, null, body);
+	}
+
+	/** With a small icon before the title (for example a verified capture-source icon); null for none. */
+	public Expandable(UiContext ctx, String title, java.awt.image.BufferedImage icon, JComponent body) {
 		this.ctx = ctx;
 		this.body = body;
 		setOpaque(false);
 		setLayout(new StackLayout(Tokens.GAP_SMALL));
-		summary = new Summary(ctx, title);
+		summary = new Summary(ctx, title, icon);
 		add(summary);
 		add(body);
 		body.setVisible(false);
@@ -66,13 +71,17 @@ public class Expandable extends JPanel implements com.feralenterprises.raccoon.u
 		return new java.awt.Dimension(w, heightForWidth(w));
 	}
 
+	private static final int ICON = 16;
+
 	private final class Summary extends RComponent {
 		private final String title;
+		private final java.awt.image.BufferedImage icon;
 		private boolean hover;
 
-		Summary(UiContext ctx, String title) {
+		Summary(UiContext ctx, String title, java.awt.image.BufferedImage icon) {
 			super(ctx);
 			this.title = title;
+			this.icon = icon;
 			setFocusable(true);
 			getAccessibleContext().setAccessibleName(title);
 			addMouseListener(new MouseAdapter() {
@@ -91,10 +100,12 @@ public class Expandable extends JPanel implements com.feralenterprises.raccoon.u
 			});
 		}
 
-		private List<String> lines(int width) { return TextWrap.wrap(title, ctx.metrics(FontRole.BODY), width - 18); }
+		private int textX() { return icon == null ? 18 : 18 + ICON + 4; }
+
+		private List<String> lines(int width) { return TextWrap.wrap(title, ctx.metrics(FontRole.BODY), width - textX()); }
 
 		@Override
-		public int heightForWidth(int width) { return lines(width).size() * ctx.metrics(FontRole.BODY).getHeight() + 6; }
+		public int heightForWidth(int width) { return Math.max(lines(width).size() * ctx.metrics(FontRole.BODY).getHeight(), icon == null ? 0 : ICON) + 6; }
 
 		@Override
 		protected void paintComponent(Graphics g) {
@@ -111,7 +122,8 @@ public class Expandable extends JPanel implements com.feralenterprises.raccoon.u
 			FontMetrics fm = g2.getFontMetrics();
 			g2.setColor(p.text);
 			int y = 3 + fm.getAscent();
-			for (String l : lines(getWidth())) { g2.drawString(l, 18, y); y += fm.getHeight(); }
+			if (icon != null) Paints.image(g2, icon, 18, 3, ICON, ICON, 1f);
+			for (String l : lines(getWidth())) { g2.drawString(l, textX(), y); y += fm.getHeight(); }
 			if (isFocusOwner()) {
 				g2.setColor(p.focus);
 				g2.setStroke(new BasicStroke(1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, new float[]{2f, 2f}, 0f));

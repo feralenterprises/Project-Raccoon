@@ -13,6 +13,7 @@ public final class ContainerObservation {
 	private final Instant observedAt;
 	private final String source;
 	private final Map<Integer, Long> items;
+	private final ContainerObservation retained;
 
 	public ContainerObservation(Container container, ContainerState state, Instant observedAt, String source, Map<Integer, Long> items) {
 		this.container = Objects.requireNonNull(container);
@@ -31,7 +32,35 @@ public final class ContainerObservation {
 		this.observedAt = observedAt;
 		this.source = source;
 		this.items = Collections.unmodifiableMap(copy);
+		this.retained = null;
 	}
+
+	private ContainerObservation(ContainerObservation incomplete, ContainerObservation retained) {
+		this.container = incomplete.container;
+		this.state = incomplete.state;
+		this.observedAt = incomplete.observedAt;
+		this.source = incomplete.source;
+		this.items = incomplete.items;
+		this.retained = retained;
+	}
+
+	/**
+	 * Lane C (frozen {@code incompleteRetained}): an INCOMPLETE observation may carry the earlier complete capture it
+	 * did not replace. The retained capture must be HISTORICAL (shown as saved, never as current), of the same container
+	 * and not newer. {@link #quantity} is unchanged: the incomplete observation still claims nothing it did not see.
+	 */
+	public ContainerObservation withRetained(ContainerObservation earlier) {
+		if (state != ContainerState.INCOMPLETE) throw new IllegalArgumentException("only an incomplete observation retains an earlier capture");
+		Objects.requireNonNull(earlier);
+		if (earlier.state != ContainerState.HISTORICAL) throw new IllegalArgumentException("the retained capture must be historical");
+		if (earlier.container != container) throw new IllegalArgumentException("the retained capture must be the same container");
+		if (earlier.observedAt.isAfter(observedAt)) throw new IllegalArgumentException("the retained capture cannot be newer");
+		if (earlier.retained != null) throw new IllegalArgumentException("a retained capture retains nothing");
+		return new ContainerObservation(this, earlier);
+	}
+
+	/** The earlier complete capture an INCOMPLETE observation retains (HISTORICAL), or null. */
+	public ContainerObservation retained() { return retained; }
 
 	public static ContainerObservation unavailable(Container c) {
 		return new ContainerObservation(c, ContainerState.UNAVAILABLE, null, null, Collections.emptyMap());

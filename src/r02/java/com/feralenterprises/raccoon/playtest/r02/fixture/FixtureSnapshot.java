@@ -29,6 +29,9 @@ public final class FixtureSnapshot {
 	private final List<ArchiveRecord> archive;
 	private final ActivityObservation activity;
 	private final Evidence<Boolean> archiveAvailable;
+	private final Map<String, Evidence<Integer>> goalProgress;
+	private final Evidence<Coverage> questCoverage;
+	private final Evidence<Coverage> diaryCoverage;
 
 	private FixtureSnapshot(Builder b) {
 		scope = Objects.requireNonNull(b.scope, "scope");
@@ -46,6 +49,9 @@ public final class FixtureSnapshot {
 		archive = Collections.unmodifiableList(new ArrayList<>(b.archive));
 		activity = b.activity;
 		archiveAvailable = b.archiveAvailable;
+		goalProgress = Collections.unmodifiableMap(new LinkedHashMap<>(b.goalProgress));
+		questCoverage = b.questCoverage;
+		diaryCoverage = b.diaryCoverage;
 		if (!scope.signedIn() && (activity.mode() != ActivityObservation.Mode.SIGNED_OUT && activity.mode() != ActivityObservation.Mode.NONE))
 			throw new IllegalArgumentException("a signed-out snapshot has no current activity");
 	}
@@ -62,13 +68,39 @@ public final class FixtureSnapshot {
 	/** Official KC by registry kcKey; UNKNOWN when not observed, VERIFIED_ZERO when observed as 0. */
 	public Evidence<Integer> officialKc(String kcKey) { return officialKc.getOrDefault(kcKey, Evidence.unknown()); }
 	public SkillObservation skill(String skill) { return skills.getOrDefault(skill, SkillObservation.unobserved()); }
-	public Evidence<CaptureState> capture(String sourceId) { return captures.getOrDefault(sourceId, Evidence.unknown()); }
+	/**
+	 * Capture evidence by source. {@code "bank"} is derived from the BANK container so the two can never disagree (Lane C):
+	 * CURRENT is VERIFIED, HISTORICAL is a stale VERIFIED, INCOMPLETE is PARTIAL, UNAVAILABLE is unavailable. A
+	 * builder value for "bank" is ignored.
+	 */
+	public Evidence<CaptureState> capture(String sourceId) {
+		if (BANK_SOURCE.equals(sourceId)) return bankCapture(containers.get(Container.BANK));
+		return captures.getOrDefault(sourceId, Evidence.unknown());
+	}
+
+	public static final String BANK_SOURCE = "bank";
+
+	private static Evidence<CaptureState> bankCapture(ContainerObservation b) {
+		switch (b.state()) {
+			case CURRENT: return Evidence.verified(CaptureState.VERIFIED, b.observedAt(), b.source());
+			case HISTORICAL: return Evidence.stale(CaptureState.VERIFIED, b.observedAt(), b.source());
+			case INCOMPLETE: return Evidence.verified(CaptureState.PARTIAL, b.observedAt(), b.source());
+			default: return Evidence.unavailable();
+		}
+	}
+
+	/** Whether the quest observations cover the whole quest list (Lane D, C-06); UNKNOWN when not observed. */
+	public Evidence<Coverage> questCoverage() { return questCoverage; }
+	/** Whether the diary observations cover every region and tier; UNKNOWN when not observed. */
+	public Evidence<Coverage> diaryCoverage() { return diaryCoverage; }
 	public Evidence<Ownership> ownership(String petKey) { return collection.getOrDefault(petKey, Evidence.unknown()); }
 	/** Whether the archive was observed at all; when not, an empty {@link #archive()} means unknown, not "no sessions". */
 	public Evidence<Boolean> archiveAvailable() { return archiveAvailable; }
 	public List<ArchiveRecord> archive() { return archive; }
 	public Optional<ArchiveRecord> record(String id) { return archive.stream().filter(r -> r.id().equals(id)).findFirst(); }
 	public ActivityObservation activity() { return activity; }
+	/** Observed milestone progress for a goal (for example {@code bowfa}: completed milestones); UNKNOWN when unobserved. */
+	public Evidence<Integer> goalProgress(String goal) { return goalProgress.getOrDefault(goal, Evidence.unknown()); }
 
 	/** Builder; one per publication. Not thread-safe; the built snapshot is. */
 	public static final class Builder {
@@ -85,6 +117,9 @@ public final class FixtureSnapshot {
 		private final List<ArchiveRecord> archive = new ArrayList<>();
 		private ActivityObservation activity = ActivityObservation.none();
 		private Evidence<Boolean> archiveAvailable = Evidence.unknown();
+		private final Map<String, Evidence<Integer>> goalProgress = new LinkedHashMap<>();
+		private Evidence<Coverage> questCoverage = Evidence.unknown();
+		private Evidence<Coverage> diaryCoverage = Evidence.unknown();
 
 		private Builder(AccountScope scope) { this.scope = scope; }
 
@@ -105,6 +140,9 @@ public final class FixtureSnapshot {
 			return this;
 		}
 		public Builder activity(ActivityObservation a) { activity = Objects.requireNonNull(a); return this; }
+		public Builder goalProgress(String goal, Evidence<Integer> e) { goalProgress.put(goal, Objects.requireNonNull(e)); return this; }
+		public Builder questCoverage(Evidence<Coverage> e) { questCoverage = Objects.requireNonNull(e); return this; }
+		public Builder diaryCoverage(Evidence<Coverage> e) { diaryCoverage = Objects.requireNonNull(e); return this; }
 		public FixtureSnapshot build() { return new FixtureSnapshot(this); }
 	}
 }

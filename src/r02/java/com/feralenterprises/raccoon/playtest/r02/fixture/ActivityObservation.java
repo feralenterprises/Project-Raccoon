@@ -10,7 +10,11 @@ import java.util.Objects;
  */
 public final class ActivityObservation {
 	/** Session modes from the frozen Current Activity states. */
-	public enum Mode { NONE, REPLAY, UNSUPPORTED, IDLE, BANKING, TRAVEL, PAUSED, SIGNED_OUT }
+	public enum Mode {
+		NONE, REPLAY, UNSUPPORTED, IDLE, BANKING, TRAVEL, PAUSED, SIGNED_OUT,
+		/** A recognised activity with no account observation: reference only, no count, rate, time or location. */
+		REFERENCE
+	}
 
 	private final Mode mode;
 	private final String activityKey;

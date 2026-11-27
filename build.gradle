@@ -41,6 +41,22 @@ sourceSets {
 		java.srcDirs = ['src/r02test/java']; resources.srcDirs = []
 		compileClasspath += main.output + r02.output; runtimeClasspath += main.output + r02.output
 	}
+	// R02 native playtest host (dev only, never packaged into the framework or production JARs). The RuneLite glue in
+	// playtest/host-plugin compiles here against verified signature doubles; the owner build compiles it against
+	// net.runelite:client:1.13.8 (playtest/host-plugin/build.gradle). The launcher is a dependency-free JAR.
+	hostPluginStubs { java.srcDirs = ['playtest/host-plugin/typecheck-stubs']; resources.srcDirs = [] }
+	hostPlugin {
+		java.srcDirs = ['playtest/host-plugin/src/main/java']; resources.srcDirs = []
+		compileClasspath += main.output + r02.output + hostPluginStubs.output
+		runtimeClasspath += main.output + r02.output + hostPluginStubs.output
+	}
+	launcher { java.srcDirs = ['src/launcher/java']; resources.srcDirs = [] }
+	isolation { java.srcDirs = ['src/isolation/java']; resources.srcDirs = [] }
+	hosttest {
+		java.srcDirs = ['src/hosttest/java']; resources.srcDirs = []
+		compileClasspath += main.output + r02.output + hostPluginStubs.output + hostPlugin.output + launcher.output + isolation.output
+		runtimeClasspath += main.output + r02.output + hostPluginStubs.output + hostPlugin.output + launcher.output + isolation.output
+	}
 	foundationCore { java.srcDirs = [foundationCoreDir]; resources.srcDirs = [] }
 	integration {
 		java.srcDirs = ['src/integration/java']; resources.srcDirs = []
@@ -59,6 +75,8 @@ tasks.withType(JavaCompile).configureEach {
 	if (jdk == pins['jdk.version']) options.compilerArgs += ['-Werror']
 }
 tasks.named('compileFoundationCoreJava') { options.compilerArgs = []; onlyIf { hasFoundationCore } }
+// Signature doubles mirror RuneLite exactly (including its unchecked varargs), so they are compiled without -Werror.
+tasks.named('compileHostPluginStubsJava') { options.compilerArgs = [] }
 tasks.named('compileIntegrationJava') { onlyIf { hasFoundationCore } }
 
 // Proves the cached foundation sources are exactly the pinned FR-002 core.account (git tree id), before they are
@@ -95,6 +113,27 @@ tasks.register('integrationWorkbenchJar', Jar) {
 	archiveFileName = 'raccoon-ui-integration-workbench.jar'
 	from sourceSets.main.output, sourceSets.workbench.output, sourceSets.foundationCore.output, sourceSets.integration.output
 	manifest { attributes('Main-Class': 'com.feralenterprises.raccoon.ui.integration.IntegrationWorkbench') }
+}
+
+tasks.register('isolationJar', Jar) {
+	description = 'R02 playtest Java-preferences isolation (file-backed, inside the playtest profile). Not Raccoon UI code.'
+	archiveFileName = 'raccoon-r02-isolation.jar'
+	from sourceSets.isolation.output
+}
+tasks.register('launcherJar', Jar) {
+	description = 'R02 playtest launcher (dependency-free; run with the pinned JDK). Carries the isolation JAR identity.'
+	archiveFileName = 'raccoon-r02-launcher.jar'
+	dependsOn 'isolationJar'
+	from sourceSets.launcher.output
+	def iso = tasks.named('isolationJar')
+	inputs.file(iso.flatMap { it.archiveFile })
+	doFirst {
+		def f = iso.get().archiveFile.get().asFile
+		def d = java.security.MessageDigest.getInstance('SHA-256')
+		d.update(f.bytes)
+		manifest.attributes('Main-Class': 'com.feralenterprises.raccoon.playtest.launcher.PlaytestLauncher',
+			'Isolation-SHA-256': d.digest().collect { String.format('%02x', it) }.join())
+	}
 }
 
 tasks.register('fetchFoundationCore', Exec) {
@@ -144,6 +183,37 @@ tasks.register('r02ContractTests', JavaExec) {
 	def pkg = project.findProperty('r02Package')
 	if (pkg) args "${pkg}"
 	headless(it)
+}
+tasks.register('hostTests', JavaExec) {
+	group = 'verification'
+	description = 'R02 native host: package pin, lane discovery, scope guard, teardown, plugin lifecycle on doubles, forbidden-API scan'
+	dependsOn 'jar', 'workbenchJar'
+	classpath = sourceSets.hosttest.runtimeClasspath
+	mainClass = 'com.feralenterprises.raccoon.playtest.host.test.HostTests'
+	args layout.buildDirectory.get().asFile.path
+	def pkg = project.findProperty('r02Package')
+	if (pkg) args "${pkg}"
+	headless(it)
+}
+tasks.register('launcherTests', JavaExec) {
+	group = 'verification'
+	description = 'R02 playtest launcher end to end with a fake client: refusals, isolation, environment, lock, teardown'
+	dependsOn 'launcherJar'
+	classpath = sourceSets.hosttest.runtimeClasspath
+	mainClass = 'com.feralenterprises.raccoon.playtest.launcher.LauncherTests'
+	args layout.buildDirectory.dir('launcher-tests').get().asFile.path, layout.buildDirectory.file('libs/raccoon-r02-isolation.jar').get().asFile.path
+	def lpkg = project.findProperty('r02Package')
+	if (lpkg) args "${lpkg}"
+	headless(it)
+}
+tasks.register('hostStubCheck', JavaExec) {
+	group = 'verification'
+	description = 'Checks the host plugin signature doubles against pinned RuneLite sources (-PruneliteSource=PATH).'
+	def src = project.findProperty('runeliteSource')
+	onlyIf { src != null }
+	classpath = sourceSets.hosttest.runtimeClasspath
+	mainClass = 'com.feralenterprises.raccoon.playtest.host.test.StubSignatureCheck'
+	args "${src}"
 }
 tasks.register('adaptiveTests', JavaExec) {
 	group = 'verification'
@@ -213,7 +283,7 @@ tasks.register('runWorkbench', JavaExec) {
 	args(project.hasProperty('wbArgs') ? project.property('wbArgs').toString().split(' ') : [])
 }
 
-tasks.named('assemble') { dependsOn 'workbenchJar', 'integrationWorkbenchJar' }
+tasks.named('assemble') { dependsOn 'workbenchJar', 'integrationWorkbenchJar', 'launcherJar' }
 tasks.register('verificationInputs') {
 	description = 'States which optional verifications have their inputs, so a green check is never ambiguous.'
 	doLast {
@@ -223,4 +293,4 @@ tasks.register('verificationInputs') {
 		println "Sprite id check: ${project.findProperty('runeliteSource') ? 'RUN against ' + project.findProperty('runeliteSource') : 'SKIPPED - pass -PruneliteSource=PATH (runelite checkout at ' + pins['runelite.commit'].take(8) + ')'}"
 	}
 }
-tasks.named('check') { dependsOn 'verificationInputs', 'routeTests', 'r02ContractTests', 'componentTests', 'hardeningTests', 'adaptiveTests', 'exposureTests', 'evidence', 'artifactCheck', 'integrationTests', 'staleSnapshotTests', 'spriteIdCheck' }
+tasks.named('check') { dependsOn 'verificationInputs', 'routeTests', 'r02ContractTests', 'hostTests', 'launcherTests', 'hostStubCheck', 'componentTests', 'hardeningTests', 'adaptiveTests', 'exposureTests', 'evidence', 'artifactCheck', 'integrationTests', 'staleSnapshotTests', 'spriteIdCheck' }
