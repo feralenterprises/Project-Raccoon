@@ -193,6 +193,20 @@ SHA-256 `81523f3bdadaae16da613d69f32d1d9ca0c447fc7afca2652b5ee39b19943eca`, arti
 | Retained | artifact `15164758300` (zip `sha256:83744d07c4742f4c0fdf9fe38355e7f0139a4df0953edcfa6461f00966ed3f28`), run `45923139849`; fresh-runner job `140262308717`, source archive 92/92 |
 | Infrastructure | historical `cb3bc8b1` packaging leg failed resolving protobuf/lombok from Maven Central; re-run green (`140262308782`) |
 
+### FR-004 targeted re-review repair (A04/K05: observed transition deadline)
+
+**Status: re-review of `3e5cd549` verified the authority repair; one A04/K05 boundary defect found; repair below awaiting targeted re-review (not accepted).**
+
+| Item | Value |
+|---|---|
+| Red regressions | `a60ed27dc06a633c48bd0fdc65b8f3189b498c52`: 234 tests, **10 failed** in both foundation runs (`140268797213`, `140268819938`); `83c0c8301d3859f7992f3a9d4bc6d92daab168a7` (re-observed transition, event past the deadline): 238 tests, **14 failed** in both runs (`140269550408`, `140269564222`) |
+| Source SHA | `41eb2aced6472363f836ffd0aa07e1fb0d0a828b` (observed HOPPING / CONNECTION_LOST suspends, as the phase event) |
+| Tests | 18 suites, **238 tests**, 0 failures/errors/skips, both foundation runs (`140269633894`, `140269652631`) |
+| Verifier self-test | 40/40 |
+| Development JAR | **75,875 bytes**, SHA-256 `cd899d3f5236561d1ef45f960b82d89785e3acf6ee84889078f67663f6b99f83`, 58 classes, major 55 |
+| Official post-processed JAR | **76,238 bytes**, SHA-256 `807089c91bc8651ded67b3ffb5b5ec13cc765c6d69f48653a8774d9601f65d0c`, 71 entries |
+| Retained | artifact `15166766655` (zip `sha256:2296476377c390c1f86388bdc7b384d72ff978cc7b0016e6ebdcf800c78bf595`), run `45926719072`; fresh-runner job `140269888590`, source archive 93/93 |
+
 ## Size history (SR-6)
 
 | Handback | Source | Dev JAR bytes | Dev JAR SHA-256 | Official JAR bytes | Official JAR SHA-256 | Δ official |
@@ -209,5 +223,6 @@ SHA-256 `81523f3bdadaae16da613d69f32d1d9ca0c447fc7afca2652b5ee39b19943eca`, arti
 | FR-004 | `e21a2326` | 75,212 (+8,236) | `13934b87…3717ec1fa` | 75,576 | `e91ed9d8…08f1f98` | +8,235 vs `7f0d580b` (Brutus KC: 7 classes) |
 | FR-004 review repair | `0f983cff` | 75,499 (+287) | `528e6d72…d6301c` | 75,863 | `07baa3e3…2c99b2` | +287 vs `e21a2326` (event-time validation) |
 | FR-004 re-review repair | `3e5cd549` | 75,974 (+475) | `aad0eb63…e230ad2` | 76,337 | `37e5727a…5264f76b` | +474 vs `0f983cff` (central event-time observation) |
+| FR-004 re-review repair (2) | `41eb2ace` | 75,875 (−99) | `cd899d3f…6b99f83` | 76,238 | `807089c9…01f65d0c` | −99 vs `3e5cd549` (special case removed) |
 
 Limits: foundation 262,144 bytes · release target < 8,000,000 bytes · ceiling 10,485,760 bytes.
