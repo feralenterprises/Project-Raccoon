@@ -132,6 +132,17 @@ the same commit gives a different hash; the retained artifact above is the accep
 | Retained | artifact `15161276694` (zip `sha256:a6019101a3d2f5cee189120908dcf03272b6a48cbd2ba0f229fee13c0df625cd`), run `45913262497`; fresh-runner job `140226611409`, source archive 78/78 |
 | CI jobs | foundation `140226372467`, `140226387143`; package head `140226373359`; 7 earlier receipts re-verified |
 
+## FR-003 — namespace and cancellation repair (2026-11-26)
+
+**Status: awaiting independent re-review (not accepted).**
+
+| Item | Value |
+|---|---|
+| Reproduction | `de93b5bee3a38617e0ca908fffd164208b8f697c`: CI failed on both runners with exactly the 4 intended tests (3 `ScopeNamespaceTest`, 1 `BankSubscriptionTest` same-round); jobs `140229919828`, `140229936938` |
+| Repair | `8452cd8cd4b8469e03ef4bb4a3ba3843fab6a454`: 13 suites, **171 tests**, 0 failures/errors/skips on both runners (`140230717206`, `140230730880`); verifier 40/40 |
+| Development JAR | **66,976 bytes**, SHA-256 `de7ce90907d97cb508f198af27acee990d40214194a57b5e807fdcce79e80065`, 51 classes, major 55 |
+| Official packaging @ `8452cd8c` | **Not produced**: the official packager's `prepare.sh` could not download `protobuf-javalite:3.21.12` from Maven Central (job `140230717268`); artifact `15161622293` holds no JAR and is not a receipt. The following evidence-only commit packages identical code; its receipt is the handback artifact |
+
 ## Size history (SR-6)
 
 | Handback | Source | Dev JAR bytes | Dev JAR SHA-256 | Official JAR bytes | Official JAR SHA-256 | Δ official |
