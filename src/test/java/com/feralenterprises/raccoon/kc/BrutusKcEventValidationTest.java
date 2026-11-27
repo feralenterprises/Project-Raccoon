@@ -1,6 +1,7 @@
 package com.feralenterprises.raccoon.kc;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 import com.feralenterprises.raccoon.account.AccountLifecycleService;
 import com.feralenterprises.raccoon.core.kc.KcResult;
@@ -13,7 +14,8 @@ import org.junit.Test;
 /**
  * FR-004 review (f556ebb5): a chat event is counted only if the live client still matches the
  * lifecycle's current scope at that moment (identity, phase, world), confirmed through the
- * central lifecycle. Reproduced against the official JAR before the repair.
+ * central lifecycle. Reproduced against the official JAR before the repair. Corrected at the
+ * targeted re-review: a confirmed contradiction ends the old login, so its total is not readable.
  */
 public class BrutusKcEventValidationTest
 {
@@ -59,12 +61,18 @@ public class BrutusKcEventValidationTest
 		return kc.view().currentLoginTotal().getAsLong();
 	}
 
+	/** After a contradictory observation the old login's total is gone, not merely unchanged. */
+	private void assertOldTotalNotReadable()
+	{
+		assertFalse("old login total must not stay readable", kc.view().currentLoginTotal().isPresent());
+	}
+
 	@Test
 	public void identityChangedBeforeNextTickIsRejected()
 	{
 		hash = 9999L;
 		assertEquals(KcResult.REJECTED_SCOPE, chat(500));
-		assertEquals("old account total unchanged", 3, total());
+		assertOldTotalNotReadable();
 	}
 
 	@Test
@@ -72,7 +80,7 @@ public class BrutusKcEventValidationTest
 	{
 		gameState = "LOGIN_SCREEN";
 		assertEquals(KcResult.REJECTED_SCOPE, chat(500));
-		assertEquals(3, total());
+		assertOldTotalNotReadable();
 	}
 
 	@Test
@@ -80,7 +88,7 @@ public class BrutusKcEventValidationTest
 	{
 		world = Collections.singleton("SEASONAL");
 		assertEquals(KcResult.REJECTED_SCOPE, chat(500));
-		assertEquals(3, total());
+		assertOldTotalNotReadable();
 	}
 
 	@Test
@@ -88,7 +96,7 @@ public class BrutusKcEventValidationTest
 	{
 		hash = -1L;
 		assertEquals(KcResult.REJECTED_SCOPE, chat(500));
-		assertEquals(3, total());
+		assertOldTotalNotReadable();
 	}
 
 	@Test
@@ -96,7 +104,7 @@ public class BrutusKcEventValidationTest
 	{
 		hashThrows = true;
 		assertEquals(KcResult.REJECTED_SCOPE, chat(500));
-		assertEquals(3, total());
+		assertOldTotalNotReadable();
 	}
 
 	@Test
@@ -104,7 +112,7 @@ public class BrutusKcEventValidationTest
 	{
 		gameState = null;
 		assertEquals(KcResult.REJECTED_SCOPE, chat(500));
-		assertEquals(3, total());
+		assertOldTotalNotReadable();
 	}
 
 	@Test
@@ -119,10 +127,15 @@ public class BrutusKcEventValidationTest
 	@Test
 	public void rejectedEventDoesNotBreakLaterValidOperation()
 	{
-		hash = 9999L;
-		chat(500);
-		hash = 4242L;
-		assertEquals("the rejected line never became the baseline", KcResult.GAIN, chat(432));
+		// a masking observation (loading screen seen before its event) rejects the line ...
+		gameState = "LOADING";
+		assertEquals(KcResult.REJECTED_SCOPE, chat(500));
+		gameState = "LOGGED_IN";
+		assertEquals("masked until re-verified on a tick", KcResult.REJECTED_SCOPE, chat(432));
+		accounts.onGameTick();
+		// ... and never becomes a baseline; the re-verified login keeps its total
+		assertEquals(KcResult.BASELINED, chat(432));
+		assertEquals(KcResult.GAIN, chat(433));
 		assertEquals(4, total());
 	}
 }
