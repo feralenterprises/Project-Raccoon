@@ -122,8 +122,33 @@ function Invoke-Isolated([string]$runDir, [scriptblock]$body) {
 		}
 		$iso | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $runDir 'isolation.json')
 		if ($unchanged) { Say "Isolation: your normal RuneLite folder was not changed." Green }
-		else { Say "Isolation FAILED: your normal RuneLite folder or Java settings changed during this step. Please report this." Red }
+		else {
+			Say "Isolation FAILED: your normal RuneLite folder or Java settings changed during this step. Please report this." Red
+			Say ("  normal RuneLite folder: exists {0}->{1}, files {2}->{3}, digest {4}->{5}" -f $before.exists, $after.exists, $before.files, $after.files, $before.digest, $after.digest) Red
+			Say ("  Java preferences keys: {0}->{1}" -f $prefsBefore, $prefsAfter) Red
+		}
 	}
+}
+
+function Start-Client([string[]]$argList, [string]$workDir, [int]$timeoutSeconds, [string]$stopWhenLog, [string]$stopPattern) {
+	# runs a client JVM with a time limit, so an unattended or failed run can never hang
+	$quoted = ($argList | ForEach-Object { if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } }) -join ' '
+	$p = Start-Process -FilePath $Java -ArgumentList $quoted -WorkingDirectory $workDir -PassThru -NoNewWindow
+	$deadline = (Get-Date).AddSeconds($timeoutSeconds)
+	while (-not $p.HasExited -and (Get-Date) -lt $deadline) {
+		Start-Sleep -Seconds 5
+		if ($stopWhenLog -and (Test-Path $stopWhenLog) -and (Select-String -LiteralPath $stopWhenLog -Pattern $stopPattern -Quiet)) {
+			Start-Sleep -Seconds 10
+			break
+		}
+	}
+	if (-not $p.HasExited) {
+		Say "Stopping the client (time limit $timeoutSeconds s reached or run complete)." Yellow
+		Stop-Process -Id $p.Id -Force
+		$p.WaitForExit()
+		return $false
+	}
+	return $true
 }
 
 function Invoke-Evaluate([string]$runDir, [string[]]$evalArgs) {
@@ -170,12 +195,10 @@ function Invoke-R2 {
 	$run = New-RunDir 'R2'
 	Say "R2: the test client opens, reaches the login screen, runs the replay on the client thread, then closes itself. Do not log in." Cyan
 	Invoke-Isolated $run {
-		Push-Location $run
-		try {
-			& $Java (Get-JvmArgs $m $run) '-Draccoon.playtest.mode=R2' '-Draccoon.playtest.exitAfterR2=true' `
-				-cp "$ClientLib\*;$DevLib\*" com.feralenterprises.raccoon.playtest.PlaytestClient --developer-mode --debug | Out-Host
-		}
-		finally { Pop-Location }
+		$argList = @(Get-JvmArgs $m $run) + @('-Draccoon.playtest.mode=R2', '-Draccoon.playtest.exitAfterR2=true',
+			'-cp', "$ClientLib\*;$DevLib\*", 'com.feralenterprises.raccoon.playtest.PlaytestClient', '--developer-mode', '--debug')
+		# the client closes itself after the replay; 10 minutes is the limit if it cannot reach the login screen
+		[void](Start-Client $argList $run 600 $null $null)
 	}
 	return (Invoke-Evaluate $run @('R2', (Get-LatestReceipt $run 'R2')))
 }
@@ -242,23 +265,12 @@ function Invoke-Smoke {
 	Invoke-Isolated $run {
 		$script:log = Initialize-Sideload $m $run
 		$argList = @(Get-JvmArgs $m $run) + @('-cp', "$ClientLib\*", 'net.runelite.client.RuneLite', '--developer-mode', '--debug')
-		$quoted = ($argList | ForEach-Object { if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } }) -join ' '
-		$p = Start-Process -FilePath $Java -ArgumentList $quoted -PassThru -NoNewWindow
-		$deadline = (Get-Date).AddSeconds($SmokeSeconds)
-		while (-not $p.HasExited -and (Get-Date) -lt $deadline) {
-			Start-Sleep -Seconds 5
-			if ((Test-Path $script:log) -and (Select-String -LiteralPath $script:log -Pattern 'Project Raccoon started' -Quiet)) {
-				Start-Sleep -Seconds 10
-				break
-			}
-		}
-		if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+		[void](Start-Client $argList $run $SmokeSeconds $script:log 'Project Raccoon started')
 	}
 	$log = $script:log
 	Save-LogExcerpt $log $run
 	$side = Join-Path $IsoHome '.runelite\sideloaded-plugins\project-raccoon.jar'
-	[void](Invoke-Evaluate $run @('R4', $log, $side, $m.official.sha256, $ClientLib))
-	return 0
+	return (Invoke-Evaluate $run @('LaunchPath', $log, $side, $m.official.sha256, $ClientLib))
 }
 
 function Invoke-Collect {

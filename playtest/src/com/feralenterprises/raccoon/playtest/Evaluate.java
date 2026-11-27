@@ -53,7 +53,10 @@ public final class Evaluate
 				ev.r3(read(Paths.get(args[1])));
 				break;
 			case "R4":
-				ev.r4(Paths.get(args[1]), Paths.get(args[2]), args[3], Paths.get(args[4]));
+				ev.r4(Paths.get(args[1]), Paths.get(args[2]), args[3], Paths.get(args[4]), false);
+				break;
+			case "LaunchPath":
+				ev.r4(Paths.get(args[1]), Paths.get(args[2]), args[3], Paths.get(args[4]), true);
 				break;
 			default:
 				throw new IllegalArgumentException("unknown step " + step);
@@ -73,7 +76,7 @@ public final class Evaluate
 		System.out.println(step + " verdicts");
 		for (String[] r : rows)
 		{
-			System.out.println(String.format("  %-28s %-13s %s", r[0], r[1], r[2]));
+			System.out.println(String.format("  %-36s %-13s %s", r[0], r[1], r[2]));
 			fail |= "FAIL".equals(r[1]);
 			blocked |= "BLOCKED".equals(r[1]);
 		}
@@ -320,11 +323,16 @@ public final class Evaluate
 
 	// ------------------------------------------------------------------ R4 / I03
 
-	private void r4(Path log, Path sideloaded, String expectedSha, Path clientLib) throws IOException
+	/**
+	 * R4/I03, or (launchPath) the unattended launch-path check used by CI, which only shows that
+	 * the official JAR side-loads and starts; it is never an R4 receipt.
+	 */
+	private void r4(Path log, Path sideloaded, String expectedSha, Path clientLib, boolean launchPath) throws IOException
 	{
+		String p = launchPath ? "LaunchPath." : "R4.";
 		String sha = Files.isRegularFile(sideloaded) ? sha256(Files.readAllBytes(sideloaded)) : "missing";
-		row("R4.officialJarIdentity", sha.equals(expectedSha) ? "PASS" : "FAIL", "sideloaded sha256=" + sha);
-		row("R4.officialJarContents", officialJarClean(sideloaded), "no playtest, test or launcher classes in the production artifact");
+		row(p + "officialJarIdentity", sha.equals(expectedSha) ? "PASS" : "FAIL", "sideloaded sha256=" + sha);
+		row(p + "officialJarContents", officialJarClean(sideloaded), "no playtest, test or launcher classes in the production artifact");
 		int foreign = 0;
 		int jars = 0;
 		try (DirectoryStream<Path> ds = Files.newDirectoryStream(clientLib, "*.jar"))
@@ -335,15 +343,19 @@ public final class Evaluate
 				foreign += countEntries(j, "com/feralenterprises/");
 			}
 		}
-		row("R4.clientClasspathClean", jars > 0 && foreign == 0 ? "PASS" : "FAIL", jars + " client jars, " + foreign + " Raccoon entries");
+		row(p + "clientClasspathClean", jars > 0 && foreign == 0 ? "PASS" : "FAIL", jars + " client jars, " + foreign + " Raccoon entries");
 
 		if (!Files.isRegularFile(log))
 		{
-			row("R4.startStopTwice", "BLOCKED", "no client log at " + log.getFileName());
-			row("I03.exactOfficialJar", "BLOCKED", "no client log");
+			row(p + "clientLog", "BLOCKED", "no client log at " + log.getFileName());
+			if (!launchPath)
+			{
+				row("I03.exactOfficialJar", "BLOCKED", "no client log");
+			}
 			return;
 		}
-		List<String> lines = Files.readAllLines(log, StandardCharsets.UTF_8);
+		// the client log may contain platform-encoded bytes on Windows: decode leniently, never throw
+		List<String> lines = java.util.Arrays.asList(new String(Files.readAllBytes(log), StandardCharsets.UTF_8).split("\\r?\\n"));
 		boolean sideload = false;
 		int started = 0;
 		int stopped = 0;
@@ -374,7 +386,13 @@ public final class Evaluate
 				problems.add(l.length() > 200 ? l.substring(0, 200) : l);
 			}
 		}
-		row("R4.sideloaded", sideload ? "PASS" : "BLOCKED", sideload ? "client log shows the official JAR side-loaded" : "no side-load line for project-raccoon");
+		row(p + "sideloaded", sideload ? "PASS" : "BLOCKED", sideload ? "client log shows the official JAR side-loaded" : "no side-load line for project-raccoon");
+		if (launchPath)
+		{
+			row(p + "startedFromOfficialJar", started >= 1 ? "PASS" : "BLOCKED", "started=" + started + " stopped=" + stopped);
+			row(p + "noErrors", problems.isEmpty() ? "PASS" : "FAIL", problems.isEmpty() ? "no plugin errors or stack frames" : problems.get(0));
+			return;
+		}
 		boolean twice = started >= 2 && stopped >= 2 && alternating;
 		row("R4.startStopTwice", twice ? "PASS" : started + stopped == 0 ? "BLOCKED" : "FAIL",
 			"started=" + started + " stopped=" + stopped + (alternating ? "" : " (out of order)"));

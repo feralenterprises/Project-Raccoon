@@ -24,8 +24,11 @@ import net.runelite.api.GameState;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
 import net.runelite.client.callback.ClientThread;
-import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.PluginManager;
@@ -60,6 +63,9 @@ public class WitnessPlugin extends Plugin
 	private PluginManager pluginManager;
 
 	@Inject
+	private EventBus eventBus;
+
+	@Inject
 	private AccountLifecycleService accounts;
 
 	@Inject
@@ -74,6 +80,7 @@ public class WitnessPlugin extends Plugin
 	private Subscription bankSubscription;
 	private NativeBankProbe probe;
 	private boolean r2Scheduled;
+	private final List<EventBus.Subscriber> brackets = new ArrayList<>();
 	private long tickStart;
 	private long chatStart;
 	private long stateStart;
@@ -88,6 +95,11 @@ public class WitnessPlugin extends Plugin
 		Environment.record(receipt, step);
 		receipt.event("witness.start", "step", step, "thread", Thread.currentThread().getName());
 		recordSharedInstances();
+		// highest and lowest priority around every other subscriber (RuneLite requires annotated
+		// subscriber methods to be named on<Event>, so the brackets are registered programmatically)
+		bracket(GameStateChanged.class, this::onGameStateChangedFirst, this::onGameStateChangedLast);
+		bracket(GameTick.class, this::onGameTickFirst, this::onGameTickLast);
+		bracket(ChatMessage.class, this::onChatMessageFirst, this::onChatMessageLast);
 		if ("R3".equals(step))
 		{
 			probe = new NativeBankProbe(client);
@@ -100,9 +112,20 @@ public class WitnessPlugin extends Plugin
 		}
 	}
 
+	private <T> void bracket(Class<T> type, Consumer<T> first, Consumer<T> last)
+	{
+		brackets.add(eventBus.register(type, first, 1_000_000f));
+		brackets.add(eventBus.register(type, last, -1_000_000f));
+	}
+
 	@Override
 	protected void shutDown() throws Exception
 	{
+		for (EventBus.Subscriber b : brackets)
+		{
+			eventBus.unregister(b);
+		}
+		brackets.clear();
 		if (lifecycleSubscription != null)
 		{
 			lifecycleSubscription.cancel();
@@ -241,14 +264,12 @@ public class WitnessPlugin extends Plugin
 			"distinctItems", s.current().map(e -> e.contents().size()).orElse(null));
 	}
 
-	@Subscribe(priority = 1_000_000f)
-	public void onGameStateChangedFirst(GameStateChanged e)
+	private void onGameStateChangedFirst(GameStateChanged e)
 	{
 		stateStart = System.nanoTime();
 	}
 
-	@Subscribe(priority = -1_000_000f)
-	public void onGameStateChangedLast(GameStateChanged e)
+	private void onGameStateChangedLast(GameStateChanged e)
 	{
 		long nanos = System.nanoTime() - stateStart;
 		GameState state = e.getGameState();
@@ -261,14 +282,12 @@ public class WitnessPlugin extends Plugin
 		receipt.event("timing", "event", "GameStateChanged", "nanos", nanos);
 	}
 
-	@Subscribe(priority = 1_000_000f)
-	public void onGameTickFirst(GameTick e)
+	private void onGameTickFirst(GameTick e)
 	{
 		tickStart = System.nanoTime();
 	}
 
-	@Subscribe(priority = -1_000_000f)
-	public void onGameTickLast(GameTick e)
+	private void onGameTickLast(GameTick e)
 	{
 		long nanos = System.nanoTime() - tickStart;
 		if (!"R3".equals(step))
@@ -288,8 +307,7 @@ public class WitnessPlugin extends Plugin
 		}
 	}
 
-	@Subscribe(priority = 1_000_000f)
-	public void onChatMessageFirst(ChatMessage e)
+	private void onChatMessageFirst(ChatMessage e)
 	{
 		chatStart = System.nanoTime();
 		BrutusKcView view = kc.view();
@@ -297,8 +315,7 @@ public class WitnessPlugin extends Plugin
 		kcTotalBefore = view.currentLoginTotal();
 	}
 
-	@Subscribe(priority = -1_000_000f)
-	public void onChatMessageLast(ChatMessage e)
+	private void onChatMessageLast(ChatMessage e)
 	{
 		long nanos = System.nanoTime() - chatStart;
 		if (!"R3".equals(step))

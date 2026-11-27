@@ -105,6 +105,8 @@ jobs:
           javap -c -p -constants -cp "$cp" net.runelite.client.plugins.PluginManager | grep -iE 'sideload|side-load|developerMode|RUNELITE_DIR' | head -n 14
           echo "--- RuneLite data directory"
           javap -c -p -constants -cp "$cp" net.runelite.client.RuneLite | grep -E 'RUNELITE_DIR|String user\.home|String \.runelite' | head -n 8
+          echo "--- EventBus programmatic registration (used by the witness)"
+          javap -cp "$cp" net.runelite.client.eventbus.EventBus | grep -E 'register|unregister'
           echo "--- Jagex auth storage"
           for c in net.runelite.client.rs.auth.JagexAuthService net.runelite.client.plugins.jagexauth.JagexAuthPlugin; do
             javap -c -p -constants -cp "$cp" "$c" | grep -E 'RUNELITE_DIR|String [^ ]*(\.json|\.properties|credentials|token)|ConfigManager|setConfiguration' | head -n 8
@@ -193,7 +195,7 @@ jobs:
       - name: Unattended R2 attempt (genuine client, login screen only)
         if: github.event_name == 'push' || inputs.client_runs
         continue-on-error: true
-        timeout-minutes: 10
+        timeout-minutes: 14
         run: |
           & (Join-Path $env:RUNNER_TEMP 'kit-run\Raccoon-Playtest.ps1') -Step R2 -NonInteractive
           Write-Host "::notice title=R2 attempt::exit $LASTEXITCODE (0 PASS, 1 FAIL, 2 BLOCKED); CI runner, not an owner receipt"
@@ -205,6 +207,7 @@ jobs:
         timeout-minutes: 8
         run: |
           & (Join-Path $env:RUNNER_TEMP 'kit-run\Raccoon-Playtest.ps1') -Step Smoke -NonInteractive -SmokeSeconds 240
+          Write-Host "::notice title=launch path::exit $LASTEXITCODE (0 PASS, 1 FAIL, 2 BLOCKED); CI runner, not R4"
           exit $LASTEXITCODE
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
