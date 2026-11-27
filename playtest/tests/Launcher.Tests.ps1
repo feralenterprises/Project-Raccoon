@@ -68,10 +68,54 @@ try {
 		$snap = Get-Snapshot (Join-Path $t.profile '.runelite')
 		Check 'snapshot reports incomplete on an access error' ($snap.complete -eq $false)
 		$run = New-RunDir 'T'
-		$ok = Invoke-Isolated $run { }
+		$script:bodyRan = $false
+		$ok = Invoke-Isolated $run { $script:bodyRan = $true }
 		Check 'an incomplete check fails closed' ($ok -eq $false)
+		Check 'an incomplete preflight does not run the step' (-not $script:bodyRan)
+		Check 'an incomplete preflight latches the kit' (Test-Path (Join-Path $t.kit 'KIT-STOPPED.txt'))
 	}
 	finally { & icacls $locked /remove:d "${env:USERNAME}" | Out-Null }
+
+	Write-Host "a throwing preflight snapshot does not run the step and latches (review of b428f283)"
+	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
+	function Get-ProfileSnapshot { throw 'simulated preflight failure' }
+	$run = New-RunDir 'T'
+	$script:bodyRan = $false
+	$ok = $null
+	$err = Try-Call { $script:okResult = Invoke-Isolated $run { $script:bodyRan = $true } }
+	Check 'a throwing preflight is handled, not escaped' ($null -eq $err) $err
+	Check 'a throwing preflight returns false' ($script:okResult -eq $false)
+	Check 'a throwing preflight does not run the step' (-not $script:bodyRan)
+	Check 'a throwing preflight latches the kit' (Test-Path (Join-Path $t.kit 'KIT-STOPPED.txt'))
+	Check 'a throwing preflight still writes the isolation receipt' (Test-Path (Join-Path $run 'isolation.json'))
+
+	Write-Host "a throwing postflight snapshot latches and fails the step"
+	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
+	$script:snapCalls = 0
+	function Get-ProfileSnapshot {
+		$script:snapCalls++
+		if ($script:snapCalls -ge 2) { throw 'simulated postflight failure' }
+		return [pscustomobject]@{ parts = [ordered]@{ x = 'a' }; complete = $true }
+	}
+	$run = New-RunDir 'T'
+	$script:bodyRan = $false
+	$err = Try-Call { $script:okResult = Invoke-Isolated $run { $script:bodyRan = $true } }
+	Check 'a throwing postflight is handled, not escaped' ($null -eq $err) $err
+	Check 'the step ran before the postflight' $script:bodyRan
+	Check 'a throwing postflight returns false' ($script:okResult -eq $false)
+	Check 'a throwing postflight latches the kit' (Test-Path (Join-Path $t.kit 'KIT-STOPPED.txt'))
+
+	Write-Host "a step that throws fails, keeps its isolation receipt and never reports PASS"
+	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
+	$run = New-RunDir 'T'
+	$err = Try-Call { $script:okResult = Invoke-Isolated $run { throw 'simulated step failure' } }
+	Check 'a throwing step is handled, not escaped' ($null -eq $err) $err
+	Check 'a throwing step returns false' ($script:okResult -eq $false)
+	$isoFile = Join-Path $run 'isolation.json'
+	$iso = $(if (Test-Path $isoFile) { Get-Content -Raw $isoFile | ConvertFrom-Json } else { $null })
+	Check 'a throwing step keeps the isolation receipt' ($null -ne $iso)
+	Check 'a throwing step is not recorded as PASS' (($null -ne $iso) -and ($iso.result -ne 'PASS'))
+	Check 'a throwing step records its error' (($null -ne $iso) -and ("$($iso.stepError)" -like '*simulated step failure*'))
 
 	Write-Host "Java preferences are compared by value, not by key count"
 	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
