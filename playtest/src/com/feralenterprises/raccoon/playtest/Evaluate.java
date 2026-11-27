@@ -25,7 +25,7 @@ import java.util.zip.ZipInputStream;
  *
  * <pre>
  * Evaluate R1|R2|R3 &lt;receipt.jsonl&gt;
- * Evaluate R4 &lt;client.log&gt; &lt;sideloaded jar&gt; &lt;expected sha256&gt; &lt;client lib dir&gt;
+ * Evaluate R4|LaunchPath &lt;client.log&gt; &lt;sideloaded jar&gt; &lt;expected sha256&gt; &lt;client lib dirs, ';'-separated&gt;
  * </pre>
  */
 public final class Evaluate
@@ -53,10 +53,10 @@ public final class Evaluate
 				ev.r3(read(Paths.get(args[1])));
 				break;
 			case "R4":
-				ev.r4(Paths.get(args[1]), Paths.get(args[2]), args[3], Paths.get(args[4]), false);
+				ev.r4(Paths.get(args[1]), Paths.get(args[2]), args[3], args[4], false);
 				break;
 			case "LaunchPath":
-				ev.r4(Paths.get(args[1]), Paths.get(args[2]), args[3], Paths.get(args[4]), true);
+				ev.r4(Paths.get(args[1]), Paths.get(args[2]), args[3], args[4], true);
 				break;
 			default:
 				throw new IllegalArgumentException("unknown step " + step);
@@ -327,7 +327,7 @@ public final class Evaluate
 	 * R4/I03, or (launchPath) the unattended launch-path check used by CI, which only shows that
 	 * the official JAR side-loads and starts; it is never an R4 receipt.
 	 */
-	private void r4(Path log, Path sideloaded, String expectedSha, Path clientLib, boolean launchPath) throws IOException
+	private void r4(Path log, Path sideloaded, String expectedSha, String clientLibs, boolean launchPath) throws IOException
 	{
 		String p = launchPath ? "LaunchPath." : "R4.";
 		String sha = Files.isRegularFile(sideloaded) ? sha256(Files.readAllBytes(sideloaded)) : "missing";
@@ -335,12 +335,15 @@ public final class Evaluate
 		row(p + "officialJarContents", officialJarClean(sideloaded), "no playtest, test or launcher classes in the production artifact");
 		int foreign = 0;
 		int jars = 0;
-		try (DirectoryStream<Path> ds = Files.newDirectoryStream(clientLib, "*.jar"))
+		for (String dir : clientLibs.split(";"))
 		{
-			for (Path j : ds)
+			try (DirectoryStream<Path> ds = Files.newDirectoryStream(Paths.get(dir), "*.jar"))
 			{
-				jars++;
-				foreign += countEntries(j, "com/feralenterprises/");
+				for (Path j : ds)
+				{
+					jars++;
+					foreign += countEntries(j, "com/feralenterprises/");
+				}
 			}
 		}
 		row(p + "clientClasspathClean", jars > 0 && foreign == 0 ? "PASS" : "FAIL", jars + " client jars, " + foreign + " Raccoon entries");

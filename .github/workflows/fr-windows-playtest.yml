@@ -77,7 +77,7 @@ jobs:
 
       - name: No playtest, test or launcher classes in production artifacts
         run: |
-          python3 -I - official-receipt/project-raccoon.jar build/playtest-kit/kit/lib/dev/project-raccoon.jar build/playtest-kit/kit/lib/client <<'PY'
+          python3 -I - official-receipt/project-raccoon.jar build/playtest-kit/kit/lib/dev/project-raccoon.jar build/playtest-kit/kit/lib/client build/playtest-kit/kit/lib/isolation <<'PY'
           import glob, os, re, sys, zipfile
           bad = re.compile(r"(/playtest/|Test\.class$|PluginHarness|NativeBankProbe|NativeEvaluationProbe|WitnessPlugin|PlaytestClient|R1Runner)")
           fail = False
@@ -86,7 +86,7 @@ jobs:
               print(f"::notice title=artifact contents::{os.path.basename(os.path.dirname(jar))}/{os.path.basename(jar)}: {len(hits)} test/playtest entries {hits[:5]}")
               fail |= bool(hits)
           foreign = 0
-          jars = glob.glob(os.path.join(sys.argv[3], "*.jar"))
+          jars = glob.glob(os.path.join(sys.argv[3], "*.jar")) + glob.glob(os.path.join(sys.argv[4], "*.jar"))
           for jar in jars:
               foreign += sum(1 for n in zipfile.ZipFile(jar).namelist() if n.startswith("com/feralenterprises/"))
           print(f"::notice title=R4 client classpath::{len(jars)} jars, {foreign} Raccoon entries")
@@ -114,13 +114,33 @@ jobs:
           unzip -l "$cj" | grep -iE 'jagex.*(auth|account)|(auth|account).*jagex' | head -n 12 || true
           test "$side" -gt 0 && test "$home" -gt 0 && test "$prio" -gt 0
 
+      - name: Locations outside user.home referenced by the client (isolation scan)
+        run: |
+          python3 -I - build/playtest-kit/kit/lib <<'PY'
+          import glob, os, sys, zipfile
+          needles = {"java/util/prefs/Preferences": "Java preferences (Windows registry)", "LOCALAPPDATA": "env LOCALAPPDATA",
+                     "APPDATA": "env APPDATA", "USERPROFILE": "env USERPROFILE", "user.home": "user.home"}
+          for jar in sorted(glob.glob(os.path.join(sys.argv[1], "*", "*.jar"))):
+              hits = {}
+              with zipfile.ZipFile(jar) as z:
+                  for n in z.namelist():
+                      if not n.endswith(".class"):
+                          continue
+                      data = z.read(n)
+                      for k, label in needles.items():
+                          if k.encode() in data:
+                              hits.setdefault(label, []).append(n[:-6].replace("/", "."))
+              for label, classes in hits.items():
+                  print(f"::notice title=isolation scan::{os.path.basename(jar)}: {label}: {len(classes)} classes, e.g. {', '.join(classes[:6])}")
+          PY
+
       - name: Missing evidence evaluates as BLOCKED
         run: |
           cp="build/playtest-kit/kit/lib/client/*:build/playtest-kit/kit/lib/dev/*"
           : > "${RUNNER_TEMP}/empty.jsonl"
           set +e
           java -cp "$cp" com.feralenterprises.raccoon.playtest.Evaluate R3 "${RUNNER_TEMP}/empty.jsonl"; r3=$?
-          java -cp "$cp" com.feralenterprises.raccoon.playtest.Evaluate R4 missing.log missing.jar "$OFFICIAL_SHA256" build/playtest-kit/kit/lib/client; r4=$?
+          java -cp "$cp" com.feralenterprises.raccoon.playtest.Evaluate R4 missing.log missing.jar "$OFFICIAL_SHA256" "build/playtest-kit/kit/lib/client;build/playtest-kit/kit/lib/isolation"; r4=$?
           set -e
           echo "::notice title=evaluator::empty R3 receipt exit=$r3 (2 = BLOCKED); missing R4 evidence exit=$r4 (1 = FAIL: no sideloaded JAR)"
           test "$r3" = 2 && test "$r4" = 1

@@ -16,6 +16,10 @@ allprojects {
 		}
 
 		sourceSets {
+			// Java preferences kept inside the kit (not Raccoon code; on every client classpath)
+			playtestIsolation {
+				java.srcDir rootProject.file('playtest/isolation/src')
+			}
 			playtest {
 				java.srcDir rootProject.file('playtest/src')
 				compileClasspath += sourceSets.main.output + sourceSets.test.output + configurations.testCompileClasspath
@@ -31,9 +35,17 @@ allprojects {
 			from sourceSets.playtest.output
 		}
 
+		def isolationJar = tasks.register('playtestIsolationJar', Jar) {
+			archiveFileName = 'kit-isolation.jar'
+			destinationDirectory = layout.buildDirectory.dir('playtest-kit/parts')
+			preserveFileTimestamps = false
+			reproducibleFileOrder = true
+			from sourceSets.playtestIsolation.output
+		}
+
 		tasks.register('playtestKit', Sync) {
 			description = 'Assembles the FR-006 playtest kit (Java parts).'
-			dependsOn tasks.named('jar'), testsJar
+			dependsOn tasks.named('jar'), testsJar, isolationJar
 			into kitDir
 			// the candidate's own reproducible development JAR (production classes only)
 			from(tasks.named('jar')) {
@@ -41,6 +53,9 @@ allprojects {
 			}
 			from(testsJar) {
 				into 'lib/dev'
+			}
+			from(isolationJar) {
+				into 'lib/isolation'
 			}
 			from(configurations.testRuntimeClasspath.filter { it.name.startsWith('junit-') || it.name.startsWith('hamcrest-') }) {
 				into 'lib/dev'

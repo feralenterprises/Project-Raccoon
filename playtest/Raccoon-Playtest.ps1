@@ -35,6 +35,7 @@ $Receipts = Join-Path $Kit 'receipts'
 $RealRuneLite = Join-Path $env:USERPROFILE '.runelite'
 $ClientLib = Join-Path $Kit 'lib\client'
 $DevLib = Join-Path $Kit 'lib\dev'
+$IsoLib = Join-Path $Kit 'lib\isolation'
 $Official = Join-Path $Kit 'official\project-raccoon.jar'
 
 function Say([string]$text, [string]$color = 'Gray') { Write-Host $text -ForegroundColor $color }
@@ -72,6 +73,12 @@ function Get-JavaPrefsCount {
 	return @(Get-ChildItem $key -Recurse -ErrorAction SilentlyContinue).Count
 }
 
+function Get-JavaPrefsNames {
+	$key = 'HKCU:\Software\JavaSoft\Prefs'
+	if (-not (Test-Path $key)) { return @() }
+	return @(Get-ChildItem $key -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.Name -replace '^.*\\JavaSoft\\Prefs\\?', '' })
+}
+
 function Assert-NoRuneLiteRunning {
 	$running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '^(RuneLite|JagexLauncher)$' })
 	if ($running.Count -gt 0) {
@@ -95,6 +102,9 @@ function Get-JvmArgs($manifest, [string]$runDir) {
 		'-ea', '-Xmx1024m',
 		"-Duser.home=$IsoHome",
 		"-Djava.io.tmpdir=$IsoTmp",
+		# Java preferences in files inside the kit instead of the shared registry key
+		'-Djava.util.prefs.PreferencesFactory=playtest.isolation.KitPreferencesFactory',
+		"-Draccoon.playtest.prefs.dir=$(Join-Path $IsoHome 'java-prefs')",
 		"-Draccoon.playtest.receipts=$runDir",
 		"-Draccoon.playtest.candidate=$($manifest.candidate)",
 		"-Draccoon.playtest.kit=$($manifest.kitCommit)",
@@ -125,7 +135,7 @@ function Invoke-Isolated([string]$runDir, [scriptblock]$body) {
 		else {
 			Say "Isolation FAILED: your normal RuneLite folder or Java settings changed during this step. Please report this." Red
 			Say ("  normal RuneLite folder: exists {0}->{1}, files {2}->{3}, digest {4}->{5}" -f $before.exists, $after.exists, $before.files, $after.files, $before.digest, $after.digest) Red
-			Say ("  Java preferences keys: {0}->{1}" -f $prefsBefore, $prefsAfter) Red
+			Say ("  Java preferences keys: {0}->{1} now: {2}" -f $prefsBefore, $prefsAfter, ((Get-JavaPrefsNames) -join ', ')) Red
 		}
 	}
 }
@@ -152,7 +162,7 @@ function Start-Client([string[]]$argList, [string]$workDir, [int]$timeoutSeconds
 }
 
 function Invoke-Evaluate([string]$runDir, [string[]]$evalArgs) {
-	$cp = "$ClientLib\*;$DevLib\*"
+	$cp = "$ClientLib\*;$IsoLib\*;$DevLib\*"
 	$out = & $Java -cp $cp com.feralenterprises.raccoon.playtest.Evaluate @evalArgs
 	$code = $LASTEXITCODE
 	$out | ForEach-Object { "$_" } | Tee-Object -FilePath (Join-Path $runDir 'verdicts.txt') | ForEach-Object { Say $_ }
@@ -184,7 +194,7 @@ function Invoke-R1 {
 	Copy-Item (Join-Path $Kit 'fixtures\runelite-plugin.properties') $run
 	Invoke-Isolated $run {
 		Push-Location $run
-		try { & $Java (Get-JvmArgs $m $run) -cp "$ClientLib\*;$DevLib\*" com.feralenterprises.raccoon.playtest.R1Runner | Out-Host }
+		try { & $Java (Get-JvmArgs $m $run) -cp "$ClientLib\*;$IsoLib\*;$DevLib\*" com.feralenterprises.raccoon.playtest.R1Runner | Out-Host }
 		finally { Pop-Location }
 	}
 	return (Invoke-Evaluate $run @('R1', (Get-LatestReceipt $run 'R1')))
@@ -196,7 +206,7 @@ function Invoke-R2 {
 	Say "R2: the test client opens, reaches the login screen, runs the replay on the client thread, then closes itself. Do not log in." Cyan
 	Invoke-Isolated $run {
 		$argList = @(Get-JvmArgs $m $run) + @('-Draccoon.playtest.mode=R2', '-Draccoon.playtest.exitAfterR2=true',
-			'-cp', "$ClientLib\*;$DevLib\*", 'com.feralenterprises.raccoon.playtest.PlaytestClient', '--developer-mode', '--debug')
+			'-cp', "$ClientLib\*;$IsoLib\*;$DevLib\*", 'com.feralenterprises.raccoon.playtest.PlaytestClient', '--developer-mode', '--debug')
 		# the client closes itself after the replay; 10 minutes is the limit if it cannot reach the login screen
 		[void](Start-Client $argList $run 600 $null $null)
 	}
@@ -212,7 +222,7 @@ function Invoke-R3 {
 		Push-Location $run
 		try {
 			& $Java (Get-JvmArgs $m $run) '-Draccoon.playtest.mode=R3' `
-				-cp "$ClientLib\*;$DevLib\*" com.feralenterprises.raccoon.playtest.PlaytestClient --developer-mode --debug | Out-Host
+				-cp "$ClientLib\*;$IsoLib\*;$DevLib\*" com.feralenterprises.raccoon.playtest.PlaytestClient --developer-mode --debug | Out-Host
 		}
 		finally { Pop-Location }
 	}
@@ -249,12 +259,12 @@ function Invoke-R4 {
 		$script:log = Initialize-Sideload $m $run
 		# no Raccoon classes on this classpath: only the pinned RuneLite client; the plugin comes
 		# solely from the side-loaded official JAR
-		& $Java (Get-JvmArgs $m $run) -cp "$ClientLib\*" net.runelite.client.RuneLite --developer-mode --debug | Out-Host
+		& $Java (Get-JvmArgs $m $run) -cp "$ClientLib\*;$IsoLib\*" net.runelite.client.RuneLite --developer-mode --debug | Out-Host
 	}
 	$log = $script:log
 	Save-LogExcerpt $log $run
 	$side = Join-Path $IsoHome '.runelite\sideloaded-plugins\project-raccoon.jar'
-	return (Invoke-Evaluate $run @('R4', $log, $side, $m.official.sha256, $ClientLib))
+	return (Invoke-Evaluate $run @('R4', $log, $side, $m.official.sha256, "$ClientLib;$IsoLib"))
 }
 
 function Invoke-Smoke {
@@ -264,13 +274,13 @@ function Invoke-Smoke {
 	$log = $null
 	Invoke-Isolated $run {
 		$script:log = Initialize-Sideload $m $run
-		$argList = @(Get-JvmArgs $m $run) + @('-cp', "$ClientLib\*", 'net.runelite.client.RuneLite', '--developer-mode', '--debug')
+		$argList = @(Get-JvmArgs $m $run) + @('-cp', "$ClientLib\*;$IsoLib\*", 'net.runelite.client.RuneLite', '--developer-mode', '--debug')
 		[void](Start-Client $argList $run $SmokeSeconds $script:log 'Project Raccoon started')
 	}
 	$log = $script:log
 	Save-LogExcerpt $log $run
 	$side = Join-Path $IsoHome '.runelite\sideloaded-plugins\project-raccoon.jar'
-	return (Invoke-Evaluate $run @('LaunchPath', $log, $side, $m.official.sha256, $ClientLib))
+	return (Invoke-Evaluate $run @('LaunchPath', $log, $side, $m.official.sha256, "$ClientLib;$IsoLib"))
 }
 
 function Invoke-Collect {
