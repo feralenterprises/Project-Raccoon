@@ -1,0 +1,226 @@
+// Project Raccoon UI workstream build. Gradle 8.10 wrapper, Temurin 11.0.33 (pins mirror the foundation).
+// No external dependencies: builds offline once the Gradle distribution is installed.
+plugins {
+	id 'java'
+}
+
+def pins = new Properties()
+file('ui-pins.properties').withInputStream { pins.load(it) }
+
+// Fail fast on an unpinned JDK, as the foundation's CI does. Override only for local experiments.
+def jdk = System.getProperty('java.version')
+if (jdk != pins['jdk.version'] && !project.hasProperty('allowUnpinnedJdk')) {
+	throw new GradleException("JDK ${jdk} is not the pinned ${pins['jdk.distribution']} ${pins['jdk.version']}. " +
+		"Install it and set JAVA_HOME, or pass -PallowUnpinnedJdk for an unsupported local build.")
+}
+
+group = 'com.feralenterprises.raccoon'
+
+// Foundation core.account sources at the pinned commit (FR-002 contract). Produced by the fetchFoundationCore
+// task from a local clone (-PfoundationRepo=PATH) into .cache/ (survives clean, git-ignored). Compiled only for the
+// integration source set; never packaged.
+def foundationCoreDir = file('.cache/foundation-core')
+def hasFoundationCore = new File(foundationCoreDir, 'com/feralenterprises/raccoon/core/account/AccountLifecycleView.java').exists()
+
+sourceSets {
+	main { java.srcDirs = ['src/main/java']; resources.srcDirs = [] }
+	workbench {
+		java.srcDirs = ['src/workbench/java']; resources.srcDirs = []
+		compileClasspath += main.output; runtimeClasspath += main.output
+	}
+	uitest {
+		java.srcDirs = ['src/test/java']; resources.srcDirs = []
+		compileClasspath += main.output + workbench.output; runtimeClasspath += main.output + workbench.output
+	}
+	// R02 playtest (dispatch Assignment 0): dev-only module, never packaged into the framework or production JARs.
+	r02 {
+		java.srcDirs = ['src/r02/java']; resources.srcDirs = []
+		compileClasspath += main.output; runtimeClasspath += main.output
+	}
+	r02test {
+		java.srcDirs = ['src/r02test/java']; resources.srcDirs = []
+		compileClasspath += main.output + r02.output; runtimeClasspath += main.output + r02.output
+	}
+	foundationCore { java.srcDirs = [foundationCoreDir]; resources.srcDirs = [] }
+	integration {
+		java.srcDirs = ['src/integration/java']; resources.srcDirs = []
+		compileClasspath += main.output + workbench.output + foundationCore.output
+		runtimeClasspath += main.output + workbench.output + foundationCore.output
+	}
+}
+// Keep the default 'test' set empty: tests are dependency-free mains (JUnit is not reachable offline).
+sourceSets.test.java.srcDirs = []
+
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+	options.release.set(11)
+	options.compilerArgs += ['-Xlint:all', '-Xlint:-serial']
+	// Warnings are errors on the pinned JDK only; newer javac versions add lint categories (e.g. this-escape).
+	if (jdk == pins['jdk.version']) options.compilerArgs += ['-Werror']
+}
+tasks.named('compileFoundationCoreJava') { options.compilerArgs = []; onlyIf { hasFoundationCore } }
+tasks.named('compileIntegrationJava') { onlyIf { hasFoundationCore } }
+
+// Proves the cached foundation sources are exactly the pinned FR-002 core.account (git tree id), before they are
+// compiled or tested. Runs on every build that uses them; a stale or edited cache fails here.
+tasks.register('verifyFoundationCore', JavaExec) {
+	group = 'verification'
+	onlyIf { hasFoundationCore }
+	dependsOn 'compileUitestJava'
+	classpath = sourceSets.uitest.runtimeClasspath
+	mainClass = 'com.feralenterprises.raccoon.ui.test.SourceIdentity'
+	args 'foundation-tree', foundationCoreDir.path
+	outputs.upToDateWhen { false }
+}
+tasks.named('compileFoundationCoreJava') { dependsOn 'verifyFoundationCore' }
+
+tasks.withType(AbstractArchiveTask).configureEach {
+	preserveFileTimestamps = false
+	reproducibleFileOrder = true
+}
+
+// Production-intent framework only: no images, no simulator, no foundation classes.
+tasks.named('jar') {
+	archiveFileName = 'raccoon-ui-framework.jar'
+}
+
+tasks.register('workbenchJar', Jar) {
+	archiveFileName = 'raccoon-ui-workbench.jar'
+	from sourceSets.main.output, sourceSets.workbench.output
+	manifest { attributes('Main-Class': 'com.feralenterprises.raccoon.workbench.Workbench') }
+}
+
+tasks.register('integrationWorkbenchJar', Jar) {
+	onlyIf { hasFoundationCore }
+	archiveFileName = 'raccoon-ui-integration-workbench.jar'
+	from sourceSets.main.output, sourceSets.workbench.output, sourceSets.foundationCore.output, sourceSets.integration.output
+	manifest { attributes('Main-Class': 'com.feralenterprises.raccoon.ui.integration.IntegrationWorkbench') }
+}
+
+tasks.register('fetchFoundationCore', Exec) {
+	description = 'Extracts core.account sources at the pinned foundation commit from -PfoundationRepo=PATH (read-only).'
+	def repo = project.findProperty('foundationRepo')
+	def zip = file('.cache/foundation-core.zip')
+	onlyIf { repo != null }
+	doFirst { zip.parentFile.mkdirs() }
+	commandLine 'git', '-C', "${repo}", 'archive', '--format=zip', '-o', zip.absolutePath, pins['foundation.commit'],
+		'src/main/java/com/feralenterprises/raccoon/core/account'
+	doLast {
+		project.delete(foundationCoreDir)
+		project.copy {
+			from(project.zipTree(zip)) { eachFile { it.path = it.path.replaceFirst('^src/main/java/', '') }; includeEmptyDirs = false }
+			into foundationCoreDir
+		}
+		println "foundation core.account extracted at ${pins['foundation.commit']}; rerun the build to compile the integration set"
+	}
+}
+
+def headless = { JavaExec t -> t.systemProperty 'java.awt.headless', 'true' }
+
+tasks.register('componentTests', JavaExec) {
+	group = 'verification'
+	classpath = sourceSets.uitest.runtimeClasspath
+	mainClass = 'com.feralenterprises.raccoon.ui.test.ComponentTests'
+	headless(it)
+}
+tasks.register('hardeningTests', JavaExec) {
+	group = 'verification'
+	classpath = sourceSets.uitest.runtimeClasspath
+	mainClass = 'com.feralenterprises.raccoon.ui.test.HardeningTests'
+	headless(it)
+}
+tasks.register('routeTests', JavaExec) {
+	group = 'verification'
+	description = 'R02 shared framework: typed routes, local Back, return delivery, scroll, dropdown'
+	classpath = sourceSets.uitest.runtimeClasspath
+	mainClass = 'com.feralenterprises.raccoon.ui.test.RouteTests'
+	headless(it)
+}
+tasks.register('r02ContractTests', JavaExec) {
+	group = 'verification'
+	description = 'R02 shared contract: routes, lanes, fixtures, scope safety, composition, Home -> Outfitter -> Back'
+	classpath = sourceSets.r02test.runtimeClasspath
+	mainClass = 'com.feralenterprises.raccoon.playtest.r02.acceptance.ContractTests'
+	def pkg = project.findProperty('r02Package')
+	if (pkg) args "${pkg}"
+	headless(it)
+}
+tasks.register('adaptiveTests', JavaExec) {
+	group = 'verification'
+	description = 'UI-005 compact header, rail cues, hover regression and simulated scaling matrix'
+	classpath = sourceSets.uitest.runtimeClasspath
+	mainClass = 'com.feralenterprises.raccoon.ui.test.AdaptiveTests'
+	headless(it)
+}
+tasks.register('evidence', JavaExec) {
+	group = 'verification'
+	classpath = files(tasks.named('workbenchJar'))
+	mainClass = 'com.feralenterprises.raccoon.workbench.Evidence'
+	args layout.buildDirectory.dir('evidence').get().asFile.path, 'review-assets'
+	headless(it)
+}
+tasks.register('artifactCheck', JavaExec) {
+	group = 'verification'
+	dependsOn 'jar', 'workbenchJar'
+	classpath = sourceSets.uitest.runtimeClasspath
+	mainClass = 'com.feralenterprises.raccoon.ui.test.ArtifactCheck'
+	args tasks.named('jar').get().archiveFile.get().asFile.path, tasks.named('workbenchJar').get().archiveFile.get().asFile.path
+}
+tasks.register('spriteIdCheck', JavaExec) {
+	group = 'verification'
+	description = 'Checks NativeSprite ids against pinned RuneLite sources (-PruneliteSource=PATH to a runelite checkout).'
+	def src = project.findProperty('runeliteSource')
+	onlyIf { src != null }
+	classpath = sourceSets.uitest.runtimeClasspath
+	mainClass = 'com.feralenterprises.raccoon.ui.test.SpriteIdCheck'
+	args "${src}"
+}
+tasks.register('integrationTests', JavaExec) {
+	group = 'verification'
+	onlyIf { hasFoundationCore }
+	dependsOn 'verifyFoundationCore'
+	classpath = sourceSets.integration.runtimeClasspath
+	mainClass = 'com.feralenterprises.raccoon.ui.integration.LifecycleBindingTests'
+	headless(it)
+}
+tasks.register('staleSnapshotTests', JavaExec) {
+	group = 'verification'
+	description = 'UI-STALE-SNAPSHOT: queued publications revalidated against live authority before showing'
+	onlyIf { hasFoundationCore }
+	dependsOn 'verifyFoundationCore'
+	classpath = sourceSets.integration.runtimeClasspath
+	mainClass = 'com.feralenterprises.raccoon.ui.integration.StaleSnapshotTests'
+	headless(it)
+}
+tasks.register('exposureTests', JavaExec) {
+	group = 'verification'
+	onlyIf { hasFoundationCore }
+	dependsOn 'verifyFoundationCore'
+	classpath = sourceSets.integration.runtimeClasspath
+	mainClass = 'com.feralenterprises.raccoon.ui.integration.ExposureTests'
+	args layout.buildDirectory.dir('evidence-exposure').get().asFile.path
+	headless(it)
+}
+tasks.register('displayTests', JavaExec) {
+	group = 'verification'
+	description = 'Real mouse/keyboard tests; needs a display.'
+	classpath = sourceSets.uitest.runtimeClasspath
+	mainClass = 'com.feralenterprises.raccoon.ui.test.DisplayTests'
+}
+tasks.register('runWorkbench', JavaExec) {
+	classpath = files(tasks.named('workbenchJar'))
+	mainClass = 'com.feralenterprises.raccoon.workbench.Workbench'
+	args(project.hasProperty('wbArgs') ? project.property('wbArgs').toString().split(' ') : [])
+}
+
+tasks.named('assemble') { dependsOn 'workbenchJar', 'integrationWorkbenchJar' }
+tasks.register('verificationInputs') {
+	description = 'States which optional verifications have their inputs, so a green check is never ambiguous.'
+	doLast {
+		println "JDK ${jdk} (pinned ${pins['jdk.version']}): ${jdk == pins['jdk.version'] ? 'PINNED' : 'UNPINNED - warnings not fatal'}"
+		println "FR-002 integration tests: ${hasFoundationCore ? 'RUN (foundation ' + pins['foundation.commit'].take(7) + ')' : 'SKIPPED - run fetchFoundationCore -PfoundationRepo=PATH'}"
+		println "R02 frozen package asset checks: ${project.findProperty('r02Package') ? 'RUN against ' + project.findProperty('r02Package') : 'SKIPPED - pass -Pr02Package=PATH (extracted Project-Raccoon-R02)'}"
+		println "Sprite id check: ${project.findProperty('runeliteSource') ? 'RUN against ' + project.findProperty('runeliteSource') : 'SKIPPED - pass -PruneliteSource=PATH (runelite checkout at ' + pins['runelite.commit'].take(8) + ')'}"
+	}
+}
+tasks.named('check') { dependsOn 'verificationInputs', 'routeTests', 'r02ContractTests', 'componentTests', 'hardeningTests', 'adaptiveTests', 'exposureTests', 'evidence', 'artifactCheck', 'integrationTests', 'staleSnapshotTests', 'spriteIdCheck' }
