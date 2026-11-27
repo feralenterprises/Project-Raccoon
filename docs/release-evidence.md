@@ -101,7 +101,7 @@ the same commit gives a different hash; the retained artifact above is the accep
 
 ## FR-003 — read-only bank observation (B01–B10)
 
-**Status: implemented; awaiting independent review (not accepted).** FR-002 accepted at
+**Status: HOLD at `f556ebb5` (event-time validation); repair below awaiting re-review.** FR-002 accepted at
 `abf11bfacff86573a9de0451775f4d14e5c4f0b1`.
 
 | Item | Value |
@@ -164,6 +164,20 @@ SHA-256 `81523f3bdadaae16da613d69f32d1d9ca0c447fc7afca2652b5ee39b19943eca`, arti
 | Official post-processed JAR | **75,576 bytes**, SHA-256 `e91ed9d869dc44030380d1537c8bfeb919a82c720d2070847bd94542e08f1f98` |
 | Retained | artifact `15162748952` (zip `sha256:252e3295b26e2b076175f9d994dc45ad730ec7d98cd01c41baefca5149781e82`), run `45918076749`; fresh-runner job `140242250366`, source archive 90/90 |
 
+### FR-004 review repair (HOLD at `f556ebb5`: event-time validation)
+
+**Status: repaired; awaiting targeted independent re-review (not accepted).**
+
+| Item | Value |
+|---|---|
+| Red regressions | `4371f2798ccb0cc548238e510ab2886b7ec6c0c0`: `BrutusKcEventValidationTest`, 7 failed in both foundation runs (`140248970810`, `140248949231`), ordinary-operation guard passed |
+| Source SHA | `0f983cffe542192bc998790ad73d3d6b5224eb54` (`AccountLifecycleService.scopeForEventNow()`; CI retry limited to dependency transport failures, both attempt logs uploaded) |
+| Tests | 16 suites, **204 tests**, 0 failures/errors/skips, both foundation runs (`140249430632`; `140250584265` after a lombok transport failure on both attempts in `140249451695`, retried correctly, then re-run) |
+| Verifier self-test | 40/40 |
+| Development JAR | **75,499 bytes**, SHA-256 `528e6d7235031d50f36b1b22968e5f83500c8194fe786e80b7be6c7f77d6301c`, 58 classes, major 55 |
+| Official post-processed JAR | **75,863 bytes**, SHA-256 `07baa3e37a3a6324d887b5c8eed461eaa0629fca972dff6999bbcfcc2f2c99b2`, 71 entries |
+| Retained | artifact `15164481747` (zip `sha256:0a4e18156bc8365ce33f22f3e7a45204d58ad4db16b43592e26af664d1c82a35`), run `45920384599`; fresh-runner job `140249662936`, source archive 91/91 |
+
 ## Size history (SR-6)
 
 | Handback | Source | Dev JAR bytes | Dev JAR SHA-256 | Official JAR bytes | Official JAR SHA-256 | Δ official |
@@ -178,5 +192,6 @@ SHA-256 `81523f3bdadaae16da613d69f32d1d9ca0c447fc7afca2652b5ee39b19943eca`, arti
 | FR-003 review repair | `312e5e8c` | 65,916 (+2,702) | `101a22b5…89a400d5` | 66,280 | `b27cfb32…9d9b51e3` | +2,702 vs `4d7ac595` |
 | FR-002/003 accepted | `7f0d580b` | 66,976 | `de7ce909…963b5` | 67,341 | `81523f3b…19943eca` | accepted receipt |
 | FR-004 | `e21a2326` | 75,212 (+8,236) | `13934b87…3717ec1fa` | 75,576 | `e91ed9d8…08f1f98` | +8,235 vs `7f0d580b` (Brutus KC: 7 classes) |
+| FR-004 review repair | `0f983cff` | 75,499 (+287) | `528e6d72…d6301c` | 75,863 | `07baa3e3…2c99b2` | +287 vs `e21a2326` (event-time validation) |
 
 Limits: foundation 262,144 bytes · release target < 8,000,000 bytes · ceiling 10,485,760 bytes.
