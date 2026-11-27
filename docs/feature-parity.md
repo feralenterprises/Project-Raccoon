@@ -7,10 +7,10 @@ governing plan, which is kept out of public source; only IDs and status are reco
 |---|---|---|
 | FR-000 Scaffold | build, pins, governance, first-build checks | Done (handed back) |
 | FR-001 Official packager | strict non-upload post-processed JAR ≤ 256 KiB | Accepted: `cb3bc8b1` receipt (see release evidence) |
-| FR-002 Account lifecycle | A01–A06 | Accepted at `abf11bfa`; re-accepted with namespace/cancellation repair at `7f0d580b` |
-| FR-003 Read-only bank observation | B01–B10 | Accepted at `7f0d580b` (independent review) |
-| FR-004 Brutus-only typed chat KC | K01–K05 | Implemented; awaiting independent review (cases → tests in `docs/kill-count.md`) |
-| FR-005 Foundation audit | regressions, performance | Pending |
+| FR-002 Account lifecycle | A01–A06 | Accepted at `abf11bfa`; re-accepted with namespace/cancellation repair at `7f0d580b`; integration re-accepted at `41eb2ace` |
+| FR-003 Read-only bank observation | B01–B10 | Accepted at `7f0d580b` (independent review); dependency hold lifted at `41eb2ace` |
+| FR-004 Brutus-only typed chat KC | K01–K05 | Accepted at `41eb2ace` (targeted independent review); native Brutus line pending FR-006 |
+| FR-005 Foundation audit | A/B/K/I01/I02 matrix, audit, simulated performance | Reported; awaiting independent QA (`docs/foundation-audit.md`) |
 | FR-006 Windows verification | R1–R4 | Pending |
 
 No user-facing feature exists yet. Burrow parity for the lifecycle is **not claimed**: Burrow

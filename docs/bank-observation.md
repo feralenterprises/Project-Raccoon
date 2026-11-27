@@ -143,10 +143,10 @@ All RuneLite names were checked against the pinned 1.13.8 source (`8397ec71`): `
 
 | Case | Tests |
 |---|---|
-| B01 | `b01_*` (4): two consecutive matching populated ticks, unknown witness degraded only, negative witness count, witness becoming known |
+| B01 | `b01_*` (4 here + 1 in `BankRepairRegressionTest`): two consecutive matching populated ticks, unknown witness degraded only, negative witness count, witness becoming known |
 | B02 | `b02_*` (3): three for an empty bank, unknown witness never, placeholder-only bank is empty |
 | B03 | `b03_*` (5): PIN (no capture), hidden bank, missing container, read exception, unreadable container/visibility |
-| B04 | `b04_*` (5): changed contents, changed witness, skipped tick, duplicate tick (no second capture), LOADING revalidation needs fresh streak |
+| B04 | `b04_*` (5 here + 4 in `BankRepairRegressionTest`): changed contents, changed witness, skipped tick, duplicate tick (no second capture), LOADING revalidation needs fresh streak |
 | B05 | `b05_*` (2): filtered view qualifies with a complete container; witness exceeding slots never qualifies |
 | B06 | `b06_*` (7): placeholders/filler/noted excluded; malformed quantities and slots; unreadable definition; per-item, combined and witness overflow |
 | B07 | `b07_*` (6): missing carried = unreported; combined claims; unreadable or malformed carried invalidates; noted carried blocks combined; carried changes keep the streak |

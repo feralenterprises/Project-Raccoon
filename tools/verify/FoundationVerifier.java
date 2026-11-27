@@ -185,7 +185,7 @@ public class FoundationVerifier
 		Pattern.compile("github_pat_[A-Za-z0-9_]{40,}"),
 		Pattern.compile("AKIA[0-9A-Z]{16}"),
 		Pattern.compile("xox[abprs]-[A-Za-z0-9-]{10,}"));
-	/** Permanent regression suites (docs/regression-matrix.md); each must run in every build. */
+	/** Permanent regression suites (docs/foundation-audit.md §1); each must run in every build. */
 	static final List<String> REQUIRED_SUITES = Arrays.asList(
 		"RaccoonPluginDescriptorTest", "FoundationIntegrationTest", "FoundationPerformanceTest",
 		"core.account.AccountLifecycleTest", "core.account.AuditRegressionTest", "core.account.ConsumerScopeGateTest",
@@ -197,7 +197,7 @@ public class FoundationVerifier
 		"kc.EventAuthorityTest", "kc.ObservedTransitionTest");
 	static final List<String> REQUIRED_RECORDS = Arrays.asList(
 		"docs/architecture.md", "docs/feature-parity.md", "docs/migration-provenance.md",
-		"docs/release-evidence.md", "docs/governance.md", "docs/engineering-requirements.md", "docs/account-lifecycle.md", "docs/ui-integration.md", "docs/bank-observation.md", "docs/kill-count.md", "release/pins.properties", "LICENSE");
+		"docs/release-evidence.md", "docs/governance.md", "docs/engineering-requirements.md", "docs/account-lifecycle.md", "docs/ui-integration.md", "docs/bank-observation.md", "docs/kill-count.md", "docs/foundation-audit.md", "release/pins.properties", "LICENSE");
 
 	// ---------------------------------------------------------------- main
 

@@ -38,7 +38,10 @@ com.feralenterprises.raccoon.core.kc         Brutus kill count over the lifecycl
   holders `gameval.InventoryID`, `VarbitID`, `ItemID`, `InterfaceID`, `InterfaceID$Bankmain` and
   `InterfaceID$BankpinKeypad` (their values are inlined, but javac still records the class names,
   so each is listed explicitly); (FR-004) `net.runelite.api.ChatMessageType` and `events.ChatMessage`.
-  All other `net.runelite.api` types stay forbidden.
+  All other `net.runelite.api` types stay forbidden. (FR-005) Within those types, every
+  referenced member must be on `ALLOWED_RUNELITE_MEMBERS` (reads only: getters, `isHidden`,
+  enum `name()` and the two `ChatMessageType` constants); any other call, such as a setter or
+  menu action, fails the artifact check.
 - Account state lives only in `core.account.AccountLifecycle` (see `docs/account-lifecycle.md`);
   consumers use `AccountLifecycleView` and `AccountDataRegistry` (see `docs/ui-integration.md`).
 - Later assignments widen the allowed surface only by editing the allowlist in
@@ -57,4 +60,5 @@ classes, service descriptors, native libraries, `module-info`, and assets.
 
 `tools/verify/FoundationVerifier.java` is offline, dependency-free Java 11, run as a single
 source file. CI (`.github/workflows/foundation.yml`) runs: JDK pin → verifier self-test →
-source/pin/governance checks → `clean build` → test counts → artifact checks → reproducibility.
+source/pin/governance checks → `clean build` → test counts (a skipped test or a missing
+permanent suite fails) → simulated performance report → artifact checks → reproducibility.
