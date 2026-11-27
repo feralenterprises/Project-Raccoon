@@ -157,7 +157,7 @@ try {
 	$run = New-RunDir 'T'
 	$script:okResult = Invoke-Isolated $run { } @('windowsCredential')
 	Check 'the expected key creation passes when allowed' ($script:okResult -eq $true)
-	Check 'the kit records that it created the key' (Test-Path (Join-Path $t.kit 'KIT-CREATED-CREDENTIAL.txt'))
+	Check 'no ownership marker is written (a marker cannot prove current ownership)' (-not (Test-Path (Join-Path $t.kit 'KIT-CREATED-CREDENTIAL.txt')))
 	$iso = Get-Content -Raw (Join-Path $run 'isolation.json') | ConvertFrom-Json
 	Check 'the isolation receipt lists the expected change' (@($iso.expectedChanges) -contains 'windowsCredential')
 
@@ -195,6 +195,23 @@ try {
 	Set-Content -Path (Join-Path $t.kit 'KIT-CREATED-CREDENTIAL.txt') -Value 'created'
 	[void](Invoke-Reset)
 	Check 'reset never deletes the credential, even with an old marker' ($script:removed -eq 0)
+
+	Write-Host "WebView2 sign-in data (verified at <kit>\\tmp\\runelite_jagexauth<n>.WebView2) never enters receipts and reset deletes it"
+	$t = New-TestKit; Set-KitEnv $t; . (Join-Path $t.kit 'Raccoon-Playtest.ps1') -NonInteractive
+	$wv = Join-Path $t.kit 'tmp\runelite_jagexauth123.WebView2\EBWebView\Default'
+	New-Item -ItemType Directory -Force -Path $wv | Out-Null
+	Set-Content -Path (Join-Path $wv 'Cookies') -Value 'not-a-real-cookie'
+	New-Item -ItemType Directory -Force -Path (Join-Path $t.kit 'receipts\R3-x') | Out-Null
+	Set-Content -Path (Join-Path $t.kit 'receipts\R3-x\receipt.json') -Value '{}'
+	function Get-SessionStoreCredential { return [pscustomobject]@{ present = $false; complete = $true } }
+	[void](Invoke-Collect)
+	Add-Type -AssemblyName System.IO.Compression.FileSystem
+	$zip = Get-ChildItem -LiteralPath $t.kit -Filter 'raccoon-receipts-*.zip' | Select-Object -First 1
+	$z = [IO.Compression.ZipFile]::OpenRead($zip.FullName)
+	try { $names = @($z.Entries | ForEach-Object { $_.FullName }) } finally { $z.Dispose() }
+	Check 'receipts zip holds no WebView2 or tmp data' (@($names | Where-Object { $_ -match 'WebView2|EBWebView|Cookies|^tmp' }).Count -eq 0)
+	[void](Invoke-Reset)
+	Check 'reset deletes the WebView2 sign-in data in the kit tmp' (-not (Test-Path (Join-Path $t.kit 'tmp')))
 
 	Write-Host "R3 only in a dedicated standard Windows test account"
 	function Test-R3Gate($facts) {

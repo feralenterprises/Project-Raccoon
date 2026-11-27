@@ -51,37 +51,76 @@ isolation failure** (the store was unwatched). Kit changes (`test/fr-windows-pla
   `cmdkey /list`, names only; the key is never read) and the **top-level folder names** of
   `%LOCALAPPDATA%` and `%APPDATA%` (a WebView2 data folder created outside the kit would show
   there). Unreadable state → preflight incomplete → step not run, kit latched.
-- **Only R3** may see that key go from absent to present; the change is recorded
-  (`isolation.json` `expectedChanges`, `KIT-CREATED-CREDENTIAL.txt`). Any other change, a
-  removal, or the key appearing in R1/R2/R4 latches the kit.
-- Menu option 7 removes the key **only if the kit recorded creating it** (`cmdkey /delete`,
-  confirmed absent afterwards); a pre-existing key is never touched (the kit's session file is
-  then encrypted with it).
-- Session file `jagex-accounts.dat`, the helper copy and any WebView2 data next to it stay in the
-  kit (`home`, `tmp`); option 7 deletes them. Receipts never include `client.log` (which can name
-  the Jagex account); the R4 excerpt keeps only plugin lines.
+- **Only R3** may see that key go from absent to present; the change is recorded in
+  `isolation.json` `expectedChanges`. Any other change, a removal, or the key appearing in
+  R1/R2/R4 latches the kit.
 
-Regressions (`playtest/tests/Launcher.Tests.ps1`, red at `9cbd3ea5`/`414c641a`, green at
-`f4dddf81`): credential created in a no-login step latches; unreadable credential state stops
-the step; R3 expected creation recorded; allowance never covers other changes or a removal;
-only R3 gets the allowance; reset removes only a kit-created key; new top-level
-`%LOCALAPPDATA%`/`%APPDATA%` folders latch even in R3. The Windows-runner R1, R2 and launch path
-stay PASS with the new watches.
+### 4a. Solis authentication review: OS-level isolation (dedicated Windows test account)
+
+Solis found three limits that more monitoring cannot close: a presence check cannot detect a
+**replaced** key; a marker file cannot prove the kit **still owns** a key; top-level AppData
+names miss changes **inside** existing folders. The kit now relies on the Windows account
+boundary instead:
+
+- **R3 runs only in a dedicated standard Windows account.** Before any launch, menu 4 checks
+  (`Get-WindowsAccountFacts`, `Test-DedicatedTestAccount`): the account name starts with
+  `RaccoonTest`; it is not in `BUILTIN\Administrators` (`S-1-5-32-544` absent from
+  `whoami /groups`, deny-only included); `%USERPROFILE%\.runelite` does not exist; RuneLite is not
+  installed in `%LOCALAPPDATA%\RuneLite`. Unreadable facts refuse. A refusal prints the reasons and
+  returns non-zero with nothing launched. R1, R2 and R4 are not gated.
+- In that account the Credential Manager vault, `%LOCALAPPDATA%`, `%APPDATA%` and `HKCU` belong to
+  the test account only, so a replaced or inner change cannot reach the owner's own RuneLite or
+  Jagex Launcher. **Removing the account ("Delete account and data")** deletes all of it,
+  including the `RuneLite SessionStore` key.
+- **The kit never deletes Credential Manager entries.** The `cmdkey /delete` path and the
+  `KIT-CREATED-CREDENTIAL.txt` marker are removed; option 7 leaves the key and says to remove the
+  test account. A shared key can therefore never be deleted by the kit.
+- The existing watches stay unchanged (no monitoring overhaul); they remain a tripwire, not the
+  guarantee.
+
+### 4b. WebView2 storage location (established on the Windows runner, no sign-in)
+
+CI step "WebView2 storage probe" (run 46010909032, job `140546270245`, at `ee419511`) extracted the
+pinned helper from the kit's `jagexauth` JAR into a scratch kit `tmp` as
+`runelite_jagexauth1234567890` (as RuneLite names it), started it with `--prompt=login` for 40 s,
+then stopped it. No sign-in; helper stdout was never printed (0 lines).
+
+| Result | Value |
+|---|---|
+| WebView2 Runtime | installed, 157.0.4341.60 |
+| Helper | running, child `msedgewebview2.exe` |
+| New folders | **kit `tmp` only**: `runelite_jagexauth1234567890.WebView2\EBWebView` (73 folders) |
+| `%LOCALAPPDATA%`, `%APPDATA%`, `%TEMP%`, `%USERPROFILE%` | 0 new folders (to depth 4) |
+
+So the sign-in browser data (cookies included) is written to
+`<java.io.tmpdir>\<helper name>.WebView2`, which is `<kit>\tmp` under the kit's isolation. Receipts
+zip only `receipts\`; option 7 deletes `tmp`. Guard test added for both (green on the baseline; it
+pins the verified location rather than fixing a defect). Limits: the probe used the CI runner's
+administrator account and stopped before any sign-in, so later sign-in writes are not observed;
+the dedicated account boundary covers anything else.
+
+Regressions (`playtest/tests/Launcher.Tests.ps1`): earlier set red at `9cbd3ea5`/`414c641a`, green
+at `f4dddf81`. Auth review set red at `c5ecfab1` (CI: the no-deletion check plus five R3 refusals
+failed), green at the follow-up: reset never deletes the key, even with an old marker; no marker
+is written; a `RaccoonTest` standard account may run R3; R3 refuses an administrator, another
+name, an existing `.runelite`, an installed RuneLite and unreadable facts **before any launch**;
+the CI runner account is refused; the receipts zip has no WebView2/tmp data; reset deletes it.
 
 ## 5. Procedure (for Solis to clear; not yet authorized)
 
-1. Fresh kit in `C:\RaccoonPlaytest`; normal RuneLite and Jagex Launcher closed.
+1. Owner creates a local **standard** Windows account `RaccoonTest`, signs in to it and extracts a
+   fresh kit to `C:\RaccoonTest-Kit` (no RuneLite or Jagex Launcher in that account).
 2. Menu 4 (R3). At the login screen click **Jagex Accounts** (sidebar) → **Add Jagex Account**.
 3. A Jagex sign-in window opens inside the test client; the owner signs in there (the kit never
    sees or asks for the password).
 4. The account appears in the panel; click the character; then play per the R3 checklist.
-5. After R3, menu 6 (receipts), then menu 7 removes the kit's sign-in data and the key it created.
+5. After R3, menu 6 (receipts) and copy the zip to `C:\Users\Public\Documents`. Sign out; when
+   the reviewer confirms receipt, remove `RaccoonTest` with "Delete account and data".
 
 ## 6. Remaining blockers
 
 - Owner live sign-in and R3 remain HOLD until Solis clears this procedure.
-- The WebView2 user-data location is inferred (default: beside the helper in the kit's `tmp`),
-  not proven; the new AppData watch fails closed if it is elsewhere.
+- The owner must create (and later remove) the `RaccoonTest` Windows account; the kit cannot.
 - The Edge WebView2 Runtime must be installed (standard on Windows 11; usually present on
   Windows 10 with Edge); without it the sign-in window cannot open.
 - A genuine open-bank failed read cannot be produced on demand; it stays BLOCKED if not observed.

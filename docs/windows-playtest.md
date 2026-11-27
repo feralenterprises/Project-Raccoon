@@ -56,8 +56,10 @@ fixtures\runelite-plugin.properties
   and writes `isolation.json` (PASS only if all are unchanged). RuneLite and the Jagex
   Launcher must be closed (checked).
 - The owner's normal RuneLite installation, launcher, settings and credentials are never read.
-  Jagex-account sign-in uses the developer client's own Jagex account panel; its data stays in
-  `<kit>\home` and menu option 7 deletes it. No `credentials.properties` is created or copied.
+  Jagex-account sign-in uses the developer client's own Jagex account panel and runs (R3) only
+  in a dedicated standard Windows account `RaccoonTest` (checked before launch). Its data stays in
+  `<kit>\home` and `<kit>\tmp` (WebView2, verified) and option 7 deletes it; the Credential Manager
+  key is removed with the test account, never by the kit (see `jagex-authentication.md` §4a–4b). No `credentials.properties` is created or copied.
 - Receipts record paths with the kit folder and profile folder replaced (`<kit>`, `%USERPROFILE%`).
 
 ### Fail-closed behaviour (review repairs)
