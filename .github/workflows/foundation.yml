@@ -77,6 +77,16 @@ jobs:
       - name: Test counts
         run: java tools/verify/FoundationVerifier.java tests build/test-results/test
 
+      - name: Performance (deterministic simulation; native measurements are FR-006)
+        run: |
+          f=build/perf/fr005-performance.txt
+          test -f "$f" || { echo "::error title=performance::no report at $f"; exit 1; }
+          cp "$f" "${RUNNER_TEMP}/fr005-performance.txt"
+          while IFS= read -r line; do echo "::notice title=perf::${line}"; done < "$f"
+          cat "$f" >> "$FOUNDATION_EVIDENCE"
+          test "$(grep -c 'result=PASS' "$f")" -eq 3
+          ! grep -q 'result=FAIL' "$f"
+
       - name: Artifact bytecode, contents, size and dependency direction
         run: java tools/verify/FoundationVerifier.java artifact . build/libs/project-raccoon.jar
 
@@ -96,4 +106,5 @@ jobs:
             build/libs/project-raccoon.jar
             ${{ runner.temp }}/foundation-evidence.txt
             ${{ runner.temp }}/gradle-build-attempt*.log
+            ${{ runner.temp }}/fr005-performance.txt
           if-no-files-found: warn

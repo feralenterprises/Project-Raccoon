@@ -97,6 +97,38 @@ public class FoundationVerifier
 		"net/runelite/api/ChatMessageType",
 		"net/runelite/api/events/ChatMessage"
 	));
+	/**
+	 * Every RuneLite/Jagex member (method or field, by owner and name) the artifact may reference.
+	 * All are reads: getters, visibility, enum name and enum constants. Widening this is a reviewed
+	 * change; anything else (setters, menu actions, scripts, writes) is rejected (FR-005).
+	 */
+	static final Set<String> ALLOWED_RUNELITE_MEMBERS = new LinkedHashSet<>(Arrays.asList(
+		"net/runelite/client/plugins/Plugin.<init>",
+		"net/runelite/api/Client.getGameState",
+		"net/runelite/api/Client.getAccountHash",
+		"com/jagex/oldscape/pub/OAuthApi.getAccountHash",
+		"net/runelite/api/Client.getWorldType",
+		"net/runelite/api/Client.getTickCount",
+		"net/runelite/api/Client.getWidget",
+		"net/runelite/api/Client.getItemContainer",
+		"net/runelite/api/Client.getItemDefinition",
+		"net/runelite/api/Client.getVarbitValue",
+		"net/runelite/api/GameState.name",
+		"net/runelite/api/WorldType.name",
+		"net/runelite/api/ItemContainer.getItems",
+		"net/runelite/api/Item.getId",
+		"net/runelite/api/Item.getQuantity",
+		"net/runelite/api/ItemComposition.getId",
+		"net/runelite/api/ItemComposition.getNote",
+		"net/runelite/api/ItemComposition.getPlaceholderTemplateId",
+		"net/runelite/api/widgets/Widget.isHidden",
+		"net/runelite/api/events/GameStateChanged.getGameState",
+		"net/runelite/api/events/ChatMessage.getType",
+		"net/runelite/api/events/ChatMessage.getMessage",
+		"net/runelite/api/ChatMessageType.GAMEMESSAGE",
+		"net/runelite/api/ChatMessageType.SPAM"
+	));
+
 	/** Core (pure domain) may reference only these, plus itself. */
 	static final List<String> CORE_ALLOWED_PREFIXES = Arrays.asList("java/lang/", "java/util/", "java/time/");
 
@@ -153,6 +185,16 @@ public class FoundationVerifier
 		Pattern.compile("github_pat_[A-Za-z0-9_]{40,}"),
 		Pattern.compile("AKIA[0-9A-Z]{16}"),
 		Pattern.compile("xox[abprs]-[A-Za-z0-9-]{10,}"));
+	/** Permanent regression suites (docs/regression-matrix.md); each must run in every build. */
+	static final List<String> REQUIRED_SUITES = Arrays.asList(
+		"RaccoonPluginDescriptorTest", "FoundationIntegrationTest", "FoundationPerformanceTest",
+		"core.account.AccountLifecycleTest", "core.account.AuditRegressionTest", "core.account.ConsumerScopeGateTest",
+		"core.account.LifecycleBoundaryTest", "core.account.LifecycleConcurrencyTest", "core.account.ScopeNamespaceTest",
+		"core.account.SubscriptionCancelTest", "account.AccountLifecycleServiceTest",
+		"core.bank.BankObservationTrackerTest", "core.bank.BankRepairRegressionTest", "core.bank.BankSubscriptionTest",
+		"bank.BankObservationServiceTest",
+		"core.kc.BrutusKcTrackerTest", "kc.BrutusKcServiceTest", "kc.BrutusKcEventValidationTest",
+		"kc.EventAuthorityTest", "kc.ObservedTransitionTest");
 	static final List<String> REQUIRED_RECORDS = Arrays.asList(
 		"docs/architecture.md", "docs/feature-parity.md", "docs/migration-provenance.md",
 		"docs/release-evidence.md", "docs/governance.md", "docs/engineering-requirements.md", "docs/account-lifecycle.md", "docs/ui-integration.md", "docs/bank-observation.md", "docs/kill-count.md", "release/pins.properties", "LICENSE");
@@ -293,6 +335,7 @@ public class FoundationVerifier
 			return v;
 		}
 		int tests = 0, failures = 0, errors = 0, skipped = 0, suites = 0;
+		Set<String> ran = new TreeSet<>();
 		Pattern suite = Pattern.compile("<testsuite\\b([^>]*)>");
 		List<Path> xmls;
 		try (Stream<Path> s = Files.list(dir))
@@ -305,6 +348,11 @@ public class FoundationVerifier
 			while (m.find())
 			{
 				suites++;
+				Matcher n = Pattern.compile("\\bname=\"([^\"]*)\"").matcher(m.group(1));
+				if (n.find())
+				{
+					ran.add(n.group(1));
+				}
 				tests += attr(m.group(1), "tests");
 				failures += attr(m.group(1), "failures");
 				errors += attr(m.group(1), "errors");
@@ -320,6 +368,17 @@ public class FoundationVerifier
 		if (failures + errors > 0)
 		{
 			v.add(failures + " failure(s), " + errors + " error(s)");
+		}
+		if (skipped > 0)
+		{
+			v.add(skipped + " skipped test(s): every test is a required regression (FR-005)");
+		}
+		for (String req : REQUIRED_SUITES)
+		{
+			if (!ran.contains(OWN.replace('/', '.') + req))
+			{
+				v.add("required regression suite did not run: " + req);
+			}
 		}
 		return v;
 	}
@@ -673,6 +732,7 @@ public class FoundationVerifier
 		byte[] jarBytes = Files.readAllBytes(jar);
 		int entries = 0, classes = 0, highestMajor = 0, stubs = 0;
 		Set<String> externalRefs = new TreeSet<>();
+		externalMembers.clear();
 		try (ZipInputStream zin = new ZipInputStream(new ByteArrayInputStream(jarBytes)))
 		{
 			ZipEntry e;
@@ -747,9 +807,13 @@ public class FoundationVerifier
 			evidence(k + ".sha256", sha256(jarBytes));
 			evidence(k + ".entries", "entries=" + entries + " classes=" + classes + " highestMajor=" + highestMajor);
 			evidence(k + ".externalRefs", String.join(",", externalRefs));
+			evidence(k + ".runeliteMembers", externalMembers.size() + ": " + String.join(",", externalMembers));
 		}
 		return v;
 	}
+
+	/** RuneLite members referenced by the artifact being checked (evidence). */
+	static final Set<String> externalMembers = new TreeSet<>();
 
 	static void checkReferences(String entry, ClassInfo ci, List<String> v, Set<String> externalRefs)
 	{
@@ -788,6 +852,18 @@ public class FoundationVerifier
 				v.add("reference outside the allowed surface " + ref + " in " + entry);
 			}
 		}
+		for (String[] m : ci.memberRefs)
+		{
+			boolean runeLite = m[0].startsWith("net/runelite/") || m[0].startsWith("com/jagex/");
+			if (runeLite && !ALLOWED_RUNELITE_MEMBERS.contains(m[0] + "." + m[1]))
+			{
+				v.add("unreviewed RuneLite member " + m[0] + "." + m[1] + " in " + entry);
+			}
+			if (runeLite)
+			{
+				externalMembers.add(m[0] + "." + m[1]);
+			}
+		}
 		for (String[] m : ci.methodRefs)
 		{
 			Set<String> names = DENIED_METHODS.get(m[0]);
@@ -819,6 +895,8 @@ public class FoundationVerifier
 		int major;
 		final Set<String> referencedClasses = new TreeSet<>();
 		final List<String[]> methodRefs = new ArrayList<>();
+		/** Fieldref, Methodref and InterfaceMethodref entries as {owner, name}. */
+		final List<String[]> memberRefs = new ArrayList<>();
 
 		static ClassInfo parse(byte[] data) throws IOException
 		{
@@ -879,11 +957,15 @@ public class FoundationVerifier
 						ci.referencedClasses.add(m.group(1));
 					}
 				}
-				else if (tag[i] == 10 || tag[i] == 11)
+				else if (tag[i] == 9 || tag[i] == 10 || tag[i] == 11)
 				{
 					String owner = utf[a[a[i]]];
 					String name = utf[a[b[i]]];
-					ci.methodRefs.add(new String[]{owner, name});
+					ci.memberRefs.add(new String[]{owner, name});
+					if (tag[i] != 9)
+					{
+						ci.methodRefs.add(new String[]{owner, name});
+					}
 				}
 			}
 			return ci;
@@ -966,7 +1048,9 @@ public class FoundationVerifier
 		fx.put("com/feralenterprises/raccoon/bad/HostImport.java",
 			"package com.feralenterprises.raccoon.bad; public class HostImport { int x() { return net.runelite.client.plugins.xptracker.XpTrackerPlugin.x(); } }");
 		fx.put("org/thirdparty/Shaded.java", "package org.thirdparty; public class Shaded {}");
-		fx.put("net/runelite/api/Client.java", "package net.runelite.api; public interface Client { long getAccountHash(); }");
+		fx.put("net/runelite/api/Client.java", "package net.runelite.api; public interface Client { long getAccountHash(); void setGameState(int s); }");
+		fx.put("com/feralenterprises/raccoon/bad/GameWrite.java",
+			"package com.feralenterprises.raccoon.bad; public class GameWrite { void w(net.runelite.api.Client c) { c.setGameState(1); } }");
 		fx.put("net/runelite/api/NPC.java", "package net.runelite.api; public interface NPC { }");
 		fx.put("com/feralenterprises/raccoon/account/Adapter.java",
 			"package com.feralenterprises.raccoon.account; public class Adapter { long h(net.runelite.api.Client c) { return c.getAccountHash(); } }");
@@ -1017,6 +1101,8 @@ public class FoundationVerifier
 		artifactCase("broad host import rejected", out, tmp, max, "outside the allowed surface", Collections.emptyMap(), good, "com/feralenterprises/raccoon/bad/HostImport.class");
 		artifactCase("lifecycle adapter RuneLite types allowed", out, tmp, max, null, Collections.emptyMap(), good,
 			"com/feralenterprises/raccoon/account/Adapter.class");
+		artifactCase("game write on an allowed type rejected", out, tmp, max, "unreviewed RuneLite member net/runelite/api/Client.setGameState", Collections.emptyMap(), good,
+			"com/feralenterprises/raccoon/bad/GameWrite.class");
 		artifactCase("unlisted game API (NPC) still rejected", out, tmp, max, "forbidden game API outside the reviewed allowlist", Collections.emptyMap(), good,
 			"com/feralenterprises/raccoon/bad/Observer.class");
 		artifactCase("core -> allowed RuneLite type still rejected", out, tmp, max, "net/runelite/api/Client in com/feralenterprises/raccoon/core/CoreToClient.class", Collections.emptyMap(), good,
@@ -1038,6 +1124,10 @@ public class FoundationVerifier
 			Collections.singletonMap(PACKAGER_STUB, stubJson), good, pure);
 
 		packagedLogCase(root, tmp, out, good, pure, stubJson);
+
+		testsCase(tmp, "complete required suites pass", null, 0, null);
+		testsCase(tmp, "skipped test rejected", null, 1, "skipped test");
+		testsCase(tmp, "missing required suite rejected", "kc.ObservedTransitionTest", 0, "required regression suite did not run: kc.ObservedTransitionTest");
 
 		// source-mode mutations on a copy of the real repository
 		sourceCase(root, tmp, "repository source passes", null, null, null);
@@ -1096,6 +1186,33 @@ public class FoundationVerifier
 			}
 		}
 		judge(name, checkArtifact(jar, max, 55, false, packaged), expectFail);
+	}
+
+	static void testsCase(Path tmp, String name, String omit, int skipped, String expectFail) throws IOException
+	{
+		selfCases++;
+		Path dir = tmp.resolve("results-" + selfCases);
+		Files.createDirectories(dir);
+		for (String suite : REQUIRED_SUITES)
+		{
+			if (suite.equals(omit))
+			{
+				continue;
+			}
+			String cls = OWN.replace('/', '.') + suite;
+			int skip = suite.equals(REQUIRED_SUITES.get(0)) ? skipped : 0;
+			Files.write(dir.resolve("TEST-" + cls + ".xml"), ("<?xml version=\"1.0\"?>\n<testsuite name=\"" + cls
+				+ "\" tests=\"2\" skipped=\"" + skip + "\" failures=\"0\" errors=\"0\">\n</testsuite>\n").getBytes(StandardCharsets.UTF_8));
+		}
+		quiet = true;
+		try
+		{
+			judge(name, checkTests(dir), expectFail);
+		}
+		finally
+		{
+			quiet = false;
+		}
 	}
 
 	static void sourceCase(Path root, Path tmp, String name, String file, Edit edit, String expectFail) throws IOException

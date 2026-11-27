@@ -622,6 +622,12 @@ public final class AccountLifecycle implements AccountLifecycleView, AccountData
 		}
 	}
 
+	/** Live (not cancelled) subscriptions, for diagnostics and integration checks. */
+	public int subscriberCount()
+	{
+		return registrations.size();
+	}
+
 	/** Current state, for diagnostics; same as {@code snapshot().state()}. */
 	public AccountState state()
 	{
