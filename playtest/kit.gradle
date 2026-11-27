@@ -1,0 +1,63 @@
+// FR-006 Windows playtest kit. Gradle init script: adds kit tasks without changing the
+// candidate's build.gradle, so the candidate build and its development JAR stay byte-identical.
+//   ./gradlew --no-daemon --init-script playtest/kit.gradle playtestKit
+// Output: build/playtest-kit/kit (Java parts; the CI workflow adds the Windows runtime, the
+// retained official JAR and the manifest).
+allprojects {
+	pluginManager.withPlugin('java') {
+		def runeLite = '1.13.8'
+		def kitDir = layout.buildDirectory.dir('playtest-kit/kit')
+
+		configurations {
+			playtestClient
+		}
+		dependencies {
+			playtestClient "net.runelite:client:${runeLite}"
+		}
+
+		sourceSets {
+			playtest {
+				java.srcDir rootProject.file('playtest/src')
+				compileClasspath += sourceSets.main.output + sourceSets.test.output + configurations.testCompileClasspath
+			}
+		}
+
+		def testsJar = tasks.register('playtestTestsJar', Jar) {
+			archiveFileName = 'raccoon-tests.jar'
+			destinationDirectory = layout.buildDirectory.dir('playtest-kit/parts')
+			preserveFileTimestamps = false
+			reproducibleFileOrder = true
+			from sourceSets.test.output
+			from sourceSets.playtest.output
+		}
+
+		tasks.register('playtestKit', Sync) {
+			description = 'Assembles the FR-006 playtest kit (Java parts).'
+			dependsOn tasks.named('jar'), testsJar
+			into kitDir
+			// the candidate's own reproducible development JAR (production classes only)
+			from(tasks.named('jar')) {
+				into 'lib/dev'
+			}
+			from(testsJar) {
+				into 'lib/dev'
+			}
+			from(configurations.testRuntimeClasspath.filter { it.name.startsWith('junit-') || it.name.startsWith('hamcrest-') }) {
+				into 'lib/dev'
+			}
+			// the pinned RuneLite developer client and its dependencies; no Raccoon classes
+			from(configurations.playtestClient) {
+				into 'lib/client'
+			}
+			from(rootProject.file('playtest')) {
+				include 'Raccoon-Playtest.ps1', 'Raccoon-Playtest.cmd', 'R3-CHECKLIST.txt', 'R4-CHECKLIST.txt'
+			}
+			from(rootProject.file('playtest/OWNER-INSTRUCTIONS.md')) {
+				rename { 'READ-ME-FIRST.txt' }
+			}
+			from(rootProject.file('runelite-plugin.properties')) {
+				into 'fixtures'
+			}
+		}
+	}
+}

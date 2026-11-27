@@ -1,0 +1,10 @@
+R4 - official plugin file start/stop test (about 3 minutes, no login needed).
+This client contains no test code: Project Raccoon comes only from the official plugin file.
+
+ 1. Wait until the RuneLite login screen appears.
+ 2. Click the wrench icon (Configuration) in the right-hand sidebar and type "Project Raccoon"
+    in the search box. It should be switched on.
+ 3. Switch it off. Wait 5 seconds.
+ 4. Switch it on. Wait 5 seconds.
+ 5. Switch it off. Wait 5 seconds.
+ 6. Close the client window. The results appear here a few seconds later.
