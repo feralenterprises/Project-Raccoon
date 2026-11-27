@@ -11,6 +11,8 @@ Base: accepted common framework `6684228b`. Lane D writes only `panel/pathfinder
   /path/to/Project-Raccoon-R02-Lane-Inputs.zip /path/to/Project-Raccoon-R02 [evidence-dir]
 # Quests & Diaries: same classpath and arguments, class
 #   com.feralenterprises.raccoon.playtest.r02.panel.quests.QuestsLaneTests
+# Bandit's Bounties: same classpath and arguments, class
+#   com.feralenterprises.raccoon.playtest.r02.panel.bounties.BountiesLaneTests
 ```
 
 Inputs stay private: the accepted Lane Inputs ZIP (SHA-256 `1f6a821d…cece`, refused if different, every file checked
