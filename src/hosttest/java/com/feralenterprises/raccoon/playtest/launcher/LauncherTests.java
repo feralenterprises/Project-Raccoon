@@ -42,22 +42,21 @@ public final class LauncherTests {
 		setUpRepo();
 		setUpJars("1.13.8");
 		pkg = Files.createDirectories(work.resolve("outside/Project-Raccoon-R02"));
-		if (frozen != null) Files.copy(PackagePin.verify(frozen).resolve("SHA256SUMS.txt"), pkg.resolve("SHA256SUMS.txt"));
+		syntheticPackage();
 		staticRules();
+		jdkRules();
 		preferences();
 		recordLock();
-		if (frozen == null) {
-			System.out.println("LauncherTests: frozen package not given; package-dependent launch checks SKIPPED");
-		} else {
-			ready();
-			launchHappyPath();
-			teardownOnInterrupt();
-			signInLeftBehind();
-			singleInstance();
-			refusals();
-			isolationLatch();
-			wipe();
-		}
+		ready();
+		launchHappyPath();
+		teardownOnInterrupt();
+		signInLeftBehind();
+		singleInstance();
+		refusals();
+		isolationLatch();
+		wipe();
+		if (frozen == null) System.out.println("LauncherTests: frozen package not given; the accepted package's own verification SKIPPED");
+		else frozenPackage(frozen);
 		System.exit(T.finish());
 	}
 
@@ -169,6 +168,36 @@ public final class LauncherTests {
 		Files.write(classpath, (String.join("\n", l) + "\n").getBytes(StandardCharsets.UTF_8));
 	}
 
+	/** SHA-256 of the synthetic package's SHA256SUMS.txt; the launch path is tested against it, never the private package. */
+	private static String pin;
+
+	/** A small package laid out like the frozen review: a page, assets and SHA256SUMS.txt (no private content). */
+	private static void syntheticPackage() throws IOException {
+		Files.createDirectories(pkg.resolve("assets"));
+		Files.write(pkg.resolve("Project-Raccoon-R02.html"), "<!doctype html><title>synthetic</title>\n".getBytes(StandardCharsets.UTF_8));
+		Files.write(pkg.resolve("assets/a.png"), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});
+		Files.write(pkg.resolve("assets/b.json"), "{\"synthetic\":true}\n".getBytes(StandardCharsets.UTF_8));
+		writeSums();
+	}
+
+	private static void writeSums() throws IOException {
+		StringBuilder b = new StringBuilder();
+		for (String f : new String[] {"Project-Raccoon-R02.html", "assets/a.png", "assets/b.json"})
+			b.append(PlaytestLauncher.sha256(pkg.resolve(f))).append("  ").append(f).append('\n');
+		Files.write(pkg.resolve("SHA256SUMS.txt"), b.toString().getBytes(StandardCharsets.UTF_8));
+		pin = PlaytestLauncher.sha256(pkg.resolve("SHA256SUMS.txt"));
+	}
+
+	/** The accepted private package, read only: the production pin and every payload hash verify. */
+	private static void frozenPackage(Path frozen) throws Exception {
+		PlaytestLauncher.Settings s = settings();
+		s.packageDir = PackagePin.verify(frozen);
+		s.packageSumsSha256 = PlaytestLauncher.PACKAGE_SUMS_SHA256;
+		boolean ok = new PlaytestLauncher(s).check(true);
+		if (!ok) System.out.println(out());
+		T.that("frozen: the accepted package verifies under the production pin, payloads included", ok && out().contains("frozen package is the accepted R02 package"));
+	}
+
 	private static final ByteArrayOutputStream OUT = new ByteArrayOutputStream();
 
 	private static PlaytestLauncher.Settings settings() {
@@ -187,6 +216,10 @@ public final class LauncherTests {
 		s.realHome = home;
 		s.profile = home.resolve(".raccoon-r02-playtest/profile");
 		s.packageDir = pkg.getParent();
+		s.packageSumsSha256 = pin;
+		// The launch path runs on whatever JDK runs the tests; jdkRules() proves production still demands the pinned one.
+		s.jdkVersion = System.getProperty("java.version");
+		s.jdkVendor = System.getProperty("java.vendor");
 		s.isolationJar = isolationJar;
 		try { s.isolationSha = PlaytestLauncher.sha256(isolationJar); } catch (IOException e) { throw new RuntimeException(e); }
 		s.windows = false;
@@ -200,6 +233,14 @@ public final class LauncherTests {
 	private static String out() { return new String(OUT.toByteArray(), StandardCharsets.UTF_8); }
 
 	// ------------------------------------------------------------------ cases
+
+	private static void jdkRules() {
+		PlaytestLauncher.Settings p = PlaytestLauncher.Settings.production(repo, new LinkedHashMap<>());
+		T.that("jdk: production requires Temurin 11.0.33", "11.0.33".equals(p.jdkVersion) && "Eclipse Adoptium".equals(p.jdkVendor));
+		PlaytestLauncher.Settings s = settings();
+		s.jdkVersion = "0.0.0";
+		T.that("jdk: any other JDK is refused", !new PlaytestLauncher(s).check(true) && out().contains("the playtest needs"));
+	}
 
 	private static void staticRules() {
 		PlaytestLauncher l = new PlaytestLauncher(settings());
@@ -318,7 +359,7 @@ public final class LauncherTests {
 	}
 
 	private static boolean lockFree(Path profile) throws IOException {
-		try (java.nio.channels.FileChannel c = java.nio.channels.FileChannel.open(profile.resolve(".launcher.lock"), java.nio.file.StandardOpenOption.WRITE)) {
+		try (java.nio.channels.FileChannel c = java.nio.channels.FileChannel.open(new PlaytestLauncher(settings()).lockPath(), java.nio.file.StandardOpenOption.WRITE)) {
 			java.nio.channels.FileLock l = c.tryLock();
 			if (l == null) return false;
 			l.release();
@@ -367,7 +408,7 @@ public final class LauncherTests {
 		Files.deleteIfExists(flag);
 		Path holderJar = hostJar;
 		Process holder = new ProcessBuilder(Paths.get(System.getProperty("java.home"), "bin", "java").toString(), "-cp", holderJar.toString(), "test.LockHolder",
-			s.profile.resolve(".launcher.lock").toString(), flag.toString()).start();
+			new PlaytestLauncher(s).lockPath().toString(), flag.toString()).start();
 		long end = System.currentTimeMillis() + 20000;
 		while (!Files.exists(flag) && System.currentTimeMillis() < end) Thread.sleep(50);
 		Files.deleteIfExists(s.profile.resolve("child-report.txt"));

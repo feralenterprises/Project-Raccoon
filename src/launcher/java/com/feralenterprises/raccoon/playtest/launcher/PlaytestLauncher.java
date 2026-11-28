@@ -103,6 +103,12 @@ public final class PlaytestLauncher {
 		java.util.function.Supplier<List<String>> processes = PlaytestLauncher::processNames;
 		/** The OS account: name, and whether it is an administrator (null = could not be read). Tests replace it. */
 		java.util.function.Supplier<String[]> account;
+		/** SHA-256 the package's SHA256SUMS.txt must have (production: the accepted package; tests: a synthetic one). */
+		String packageSumsSha256 = PACKAGE_SUMS_SHA256;
+		/** The JDK the launcher must itself run on (production: Temurin 11.0.33; tests on another JDK name the running one). */
+		String jdkVersion = JDK_VERSION, jdkVendor = JDK_VENDOR;
+		/** Called with a phase name at fixed points of launch and wipe (tests observe lock timing; production: no-op). */
+		java.util.function.Consumer<String> phase = x -> { };
 
 		public static Settings production(Path repo, Map<String, String> env) {
 			Settings s = new Settings();
@@ -214,8 +220,8 @@ public final class PlaytestLauncher {
 
 	private void checkJdk() {
 		String v = System.getProperty("java.version"), vendor = System.getProperty("java.vendor");
-		if (JDK_VERSION.equals(v) && JDK_VENDOR.equals(vendor)) pass("JDK " + vendor + " " + v);
-		else fail("JDK is " + vendor + " " + v + "; the playtest needs Temurin (" + JDK_VENDOR + ") " + JDK_VERSION);
+		if (s.jdkVersion.equals(v) && s.jdkVendor.equals(vendor)) pass("JDK " + vendor + " " + v);
+		else fail("JDK is " + vendor + " " + v + "; the playtest needs " + s.jdkVendor + " " + s.jdkVersion);
 		if (!Files.isExecutable(javaExe())) fail("no java executable at " + home(javaExe()));
 	}
 
@@ -350,7 +356,7 @@ public final class PlaytestLauncher {
 		try {
 			if (!Files.isRegularFile(sums)) { fail("not an extracted R02 package: " + home(s.packageDir)); return; }
 			String d = sha256(sums);
-			if (PACKAGE_SUMS_SHA256.equals(d)) { pass("frozen package is the accepted R02 package (" + shortSha(d) + ")"); s.packageDir = root; }
+			if (s.packageSumsSha256.equals(d)) { pass("frozen package is the accepted R02 package (" + shortSha(d) + ")"); s.packageDir = root; }
 			else fail("frozen package is not the accepted R02 package (SHA256SUMS.txt " + shortSha(d) + ")");
 			if (root.toAbsolutePath().normalize().startsWith(s.repo)) fail("frozen package is inside the repository; keep it outside (it may hold personal data)");
 		} catch (IOException e) {
@@ -654,7 +660,7 @@ public final class PlaytestLauncher {
 		if (!isOurs(profile)) { s.out.println("RESULT: REFUSED (profile marker)"); return 1; }
 		Files.createDirectories(profile.resolve("tmp"));
 		Files.createDirectories(profile.resolve("java-prefs"));
-		lockChannel = FileChannel.open(profile.resolve(".launcher.lock"), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+		lockChannel = FileChannel.open(lockPath(), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
 		instanceLock = lockChannel.tryLock();
 		if (instanceLock == null) { lockChannel.close(); s.out.println("RESULT: REFUSED (another playtest is already running in this profile)"); return 1; }
 		Snapshot before = snapshot();
@@ -691,6 +697,7 @@ public final class PlaytestLauncher {
 			try { Runtime.getRuntime().removeShutdownHook(hook); } catch (IllegalStateException ignored) { }
 			releaseLock();
 		}
+		s.phase.accept("launch:postflight");
 		Snapshot afterSnap = snapshot();
 		List<String> changed = before.changes(afterSnap);
 		List<String> after = signInFiles(profile);
@@ -728,6 +735,9 @@ public final class PlaytestLauncher {
 		}
 		for (ProcessHandle h : tree) if (h.isAlive()) h.destroyForcibly();
 	}
+
+	/** The single-instance lock file shared by launch and wipe. */
+	Path lockPath() { return s.profile.resolve(".launcher.lock"); }
 
 	/** For tests: the running child, or null. */
 	Process child() { return child; }
@@ -788,7 +798,7 @@ public final class PlaytestLauncher {
 			s.out.println("REFUSED: " + home(p) + " is not a profile made by this launcher; nothing deleted");
 			return false;
 		}
-		try (FileChannel ch = FileChannel.open(p.resolve(".launcher.lock"), StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
+		try (FileChannel ch = FileChannel.open(lockPath(), StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
 			FileLock l = ch.tryLock();
 			if (l == null) { s.out.println("REFUSED: a playtest is running in this profile"); return false; }
 			l.release();
@@ -798,6 +808,7 @@ public final class PlaytestLauncher {
 			s.out.println("REFUSED: the profile contains links, junctions or other redirections " + unsafe + "; nothing deleted. Remove them by hand or ask Solis.");
 			return false;
 		}
+		s.phase.accept("wipe:deleting");
 		Files.walkFileTree(p, new SimpleFileVisitor<Path>() {
 			@Override public FileVisitResult visitFile(Path f, BasicFileAttributes a) throws IOException { Files.delete(f); return FileVisitResult.CONTINUE; }
 			@Override public FileVisitResult postVisitDirectory(Path d, IOException e) throws IOException {
