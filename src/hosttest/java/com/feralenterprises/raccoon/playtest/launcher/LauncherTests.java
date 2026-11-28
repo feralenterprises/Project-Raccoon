@@ -56,6 +56,7 @@ public final class LauncherTests {
 		isolationLatch();
 		wipe();
 		safetyRegressions();
+		ordinaryAccount();
 		if (frozen == null) System.out.println("LauncherTests: frozen package not given; the accepted package's own verification SKIPPED");
 		else frozenPackage(frozen);
 		System.exit(T.finish());
@@ -118,6 +119,9 @@ public final class LauncherTests {
 		+ "      Thread.sleep(120000);\n"
 		+ "    }\n"
 		+ "    if (\"touchhome\".equals(mode)) { Path r = Paths.get(System.getenv(\"RACCOON_FAKE_REALHOME\")); Files.createDirectories(r.resolve(\"jagexcache\")); Files.write(r.resolve(\"jagexcache/x\"), new byte[] {1}); }\n"
+		+ "    if (\"touchunrelated\".equals(mode)) { Path r = Paths.get(System.getenv(\"RACCOON_FAKE_REALHOME\"), \"Documents\", \"churn\"); Files.createDirectories(r); Files.write(r.resolve(\"x.txt\"), new byte[] {1}); }\n"
+		+ "    if (\"touchrunelite\".equals(mode)) Files.write(Paths.get(System.getenv(\"RACCOON_FAKE_REALHOME\"), \".runelite\", \"settings.properties\"), new byte[] {1});\n"
+		+ "    if (\"touchtop\".equals(mode)) Files.createDirectories(Paths.get(System.getenv(\"RACCOON_FAKE_REALHOME\"), \"newtop\"));\n"
 		+ "    if (\"touchnested\".equals(mode)) { Path r = Paths.get(System.getenv(\"RACCOON_FAKE_REALHOME\"), \"AppData\", \"Local\", \"Vendor\", \"deep\"); Files.createDirectories(r); Files.write(r.resolve(\"x.dat\"), new byte[] {1}); }\n"
 		+ "    if (\"webview\".equals(mode)) Files.createDirectories(Paths.get(System.getProperty(\"java.io.tmpdir\"), \"runelite_jagexauth123.WebView2\"));\n"
 		+ "    if (\"signin\".equals(mode)) { Files.createDirectories(home.resolve(\".runelite\")); Files.write(home.resolve(\".runelite/jagex-accounts.dat\"), new byte[] {1}); }\n"
@@ -496,7 +500,6 @@ public final class LauncherTests {
 				io(x -> Files.delete(prof.resolve(f))));
 		}
 		refused("unknown scaling mode", "--scale must be", s -> s.scale = "huge", null);
-		refused("not the dedicated test account", "not the dedicated test account", s -> s.account = () -> new String[] {"owner", "no"}, null);
 		refused("an administrator account", "is an administrator", s -> s.account = () -> new String[] {"RaccoonTest1", "yes"}, null);
 		refused("account facts unreadable", "could not read the operating-system account", s -> s.account = () -> new String[] {"RaccoonTest1", null}, null);
 		refused("the account has its own RuneLite folder", "has its own RuneLite folder", s -> Files.createDirectories(home.resolve(".runelite")),
@@ -885,6 +888,154 @@ public final class LauncherTests {
 		T.that("L*: after the regressions a launch is READY again", new PlaytestLauncher(settings()).check(true));
 	}
 
+
+	// ------------------------------------------------------------------ Owner blocker (2026-11-27): ordinary Windows account
+
+	private static PlaytestLauncher.Settings ordinary(String... facts) {
+		PlaytestLauncher.Settings s = settings();
+		s.account = () -> facts;
+		return s;
+	}
+
+	private static String fakeWhoami(List<String> c, String groups) {
+		if (c.get(0).startsWith("whoami")) return groups;
+		return fakeWindows(c);
+	}
+
+	/**
+	 * The owner's regular account: no dedicated Windows user, an existing normal RuneLite with saved sign-in. The client
+	 * still runs only in the launcher's profile; the owner's RuneLite data, AppData RuneLite/Jagex folders, Java
+	 * preferences and the RuneLite SessionStore credential are watched, and an elevated run is refused.
+	 */
+	private static void ordinaryAccount() throws Exception {
+		wipeIfOurs();
+		Path rl = Files.createDirectories(home.resolve(".runelite"));
+		Map<Path, byte[]> owner = new LinkedHashMap<>();
+		owner.put(rl.resolve("settings.properties"), "owner-setting=1\n".getBytes(StandardCharsets.UTF_8));
+		owner.put(rl.resolve("jagex-accounts.dat"), new byte[] {9, 9, 9});
+		owner.put(rl.resolve("credentials.properties"), "JX_REFRESH_TOKEN=owner\n".getBytes(StandardCharsets.UTF_8));
+		for (Map.Entry<Path, byte[]> e : owner.entrySet()) Files.write(e.getKey(), e.getValue());
+		Files.createDirectories(home.resolve("Documents"));
+
+		PlaytestLauncher.Settings a = ordinary("owner", "yes", "no");
+		boolean ready = new PlaytestLauncher(a).check(true);
+		if (!ready) System.out.println(out());
+		T.that("A1 ordinary account: a regular non-elevated account (UAC administrator, deny-only) with its own RuneLite is READY",
+			ready && out().contains("PASS  ordinary account owner (not elevated)"));
+		T.that("A1 ordinary account: the owner's RuneLite folder is reported as protected, not used", out().contains("your own RuneLite folder"));
+		T.that("A1 ordinary account: a standard account is READY", new PlaytestLauncher(ordinary("owner", "no", "no")).check(true));
+		T.that("A2 ordinary account: an elevated (Run as administrator) start is refused",
+			!new PlaytestLauncher(ordinary("owner", "yes", "yes")).check(true) && out().contains("running elevated"));
+		T.that("A3 ordinary account: unreadable elevation is refused",
+			!new PlaytestLauncher(ordinary("owner", "no", null)).check(true) && out().contains("could not read the operating-system account"));
+		PlaytestLauncher.Settings d = settings();
+		T.that("A4 dedicated account rules unchanged: a RaccoonTest account with its own RuneLite is refused",
+			!new PlaytestLauncher(d).check(true) && out().contains("has its own RuneLite folder"));
+
+		PlaytestLauncher.Settings l = ordinary("owner", "yes", "no");
+		int rc = new PlaytestLauncher(l).launch();
+		boolean same = true;
+		for (Map.Entry<Path, byte[]> e : owner.entrySet()) same &= Arrays.equals(e.getValue(), Files.readAllBytes(e.getKey()));
+		Path latch = home.resolve(".raccoon-r02-playtest/" + PlaytestLauncher.LATCH);
+		T.that("A5 ordinary launch: client runs in the profile, exits 0, nothing latched", rc == 0 && !Files.exists(latch)
+			&& l.profile.toString().equals(report(l.profile).get("user.home")));
+		T.that("A5 ordinary launch: the owner's RuneLite settings and saved sign-in are byte-identical afterwards", same);
+		T.that("A5 ordinary launch: the owner's sign-in files were not copied into the profile", PlaytestLauncher.signInFiles(l.profile).isEmpty());
+
+		PlaytestLauncher.Settings u = ordinary("owner", "yes", "no");
+		u.environment.put("RACCOON_FAKE_MODE", "touchunrelated");
+		u.environment.put("RACCOON_FAKE_REALHOME", home.toString());
+		T.that("A6 ordinary launch: unrelated activity elsewhere in the home (Documents) does not latch", new PlaytestLauncher(u).launch() == 0 && !Files.exists(latch));
+		deleteTree(home.resolve("Documents/churn"));
+
+		PlaytestLauncher.Settings w = ordinary("owner", "yes", "no");
+		w.environment.put("RACCOON_FAKE_MODE", "touchrunelite");
+		w.environment.put("RACCOON_FAKE_REALHOME", home.toString());
+		int wrc = new PlaytestLauncher(w).launch();
+		T.that("A7 ordinary launch: a write into the owner's own .runelite latches (exit 3)", wrc == 3 && Files.exists(latch)
+			&& new String(Files.readAllBytes(latch), StandardCharsets.UTF_8).contains("home/.runelite/settings.properties"));
+		T.that("A7 ordinary launch: every later launch refused", new PlaytestLauncher(ordinary("owner", "yes", "no")).launch() == 1 && out().contains("changed a protected location"));
+		Files.deleteIfExists(latch);
+		Files.write(rl.resolve("settings.properties"), owner.get(rl.resolve("settings.properties")));
+
+		PlaytestLauncher.Settings n = ordinary("owner", "yes", "no");
+		n.environment.put("RACCOON_FAKE_MODE", "touchtop");
+		n.environment.put("RACCOON_FAKE_REALHOME", home.toString());
+		T.that("A8 ordinary launch: a new top-level entry in the home latches", new PlaytestLauncher(n).launch() == 3 && Files.exists(latch)
+			&& new String(Files.readAllBytes(latch), StandardCharsets.UTF_8).contains("home/newtop"));
+		Files.deleteIfExists(latch);
+		deleteTree(home.resolve("newtop"));
+
+		{
+			boolean[] cred = {false};
+			String[] prefs = {"HKEY_CURRENT_USER\\Software\\JavaSoft\\Prefs\n"};
+			PlaytestLauncher.Settings s = windowsSettings(c -> c.get(0).startsWith("cmdkey")
+				? "Currently stored credentials:\n" + (cred[0] ? "    Target: LegacyGeneric:target=RuneLite SessionStore\n" : "* NONE *\n")
+				: c.get(0).startsWith("reg") ? prefs[0] : null);
+			s.account = () -> new String[] {"owner", "yes", "no"};
+			Path local = home.resolve("AppData/Local"), roaming = home.resolve("AppData/Roaming");
+			Files.createDirectories(local.resolve("RuneLite/jre"));
+			Files.write(local.resolve("RuneLite/RuneLite.exe"), new byte[] {1});
+			Files.createDirectories(local.resolve("Vendor/deep"));
+			Files.createDirectories(roaming.resolve("Jagex"));
+			PlaytestLauncher p = new PlaytestLauncher(s);
+			T.that("A9 ordinary Windows: installed RuneLite in LOCALAPPDATA is READY, not refused", p.check(true));
+			PlaytestLauncher.Snapshot before = p.snapshot();
+			T.that("A9 ordinary Windows: snapshot complete", before.incomplete.isEmpty());
+			Files.write(local.resolve("Vendor/deep/cache.bin"), new byte[] {1});
+			T.that("A9 ordinary Windows: other applications' nested AppData activity is not a change", before.changes(p.snapshot()).isEmpty());
+			Files.write(local.resolve("RuneLite/jre/x.dll"), new byte[] {1});
+			T.that("A9 ordinary Windows: a write inside LOCALAPPDATA\\RuneLite is a change", String.join(",", before.changes(p.snapshot())).contains("RuneLite/jre/x.dll"));
+			Files.deleteIfExists(local.resolve("RuneLite/jre/x.dll"));
+			Files.write(roaming.resolve("Jagex/launcher.ini"), new byte[] {1});
+			T.that("A9 ordinary Windows: a write inside APPDATA\\Jagex is a change", String.join(",", before.changes(p.snapshot())).contains("Jagex/launcher.ini"));
+			Files.deleteIfExists(roaming.resolve("Jagex/launcher.ini"));
+			Files.createDirectories(local.resolve("NewVendor"));
+			T.that("A9 ordinary Windows: a new top-level LOCALAPPDATA folder is a change", String.join(",", before.changes(p.snapshot())).contains("NewVendor"));
+			Files.deleteIfExists(local.resolve("NewVendor"));
+			cred[0] = true;
+			T.that("A9 ordinary Windows: a RuneLite SessionStore credential appearing is a change", before.changes(p.snapshot()).contains("credential:RuneLite SessionStore"));
+			cred[0] = false;
+			prefs[0] = prefs[0] + "    k    REG_SZ    v\n";
+			T.that("A9 ordinary Windows: a shared Java preferences change is a change", before.changes(p.snapshot()).contains("java-preferences"));
+			s.command = c -> null;
+			T.that("A9 ordinary Windows: unreadable Credential Manager or registry refuses", !new PlaytestLauncher(s).check(true) && out().contains("protected locations could not be read"));
+			deleteTree(home.resolve("AppData"));
+		}
+
+		{
+			PlaytestLauncher.Settings s = settings();
+			s.windows = true;
+			s.environment.put("USERNAME", "owner");
+			String denyOnly = "BUILTIN\\Administrators   Alias   S-1-5-32-544   Group used for deny only\nMandatory Label\\Medium Mandatory Level   Label   S-1-16-8192\n";
+			String elevated = "BUILTIN\\Administrators   Alias   S-1-5-32-544   Mandatory group, Enabled by default, Enabled group, Group owner\nMandatory Label\\High Mandatory Level   Label   S-1-16-12288\n";
+			String standard = "BUILTIN\\Users   Alias   S-1-5-32-545   Mandatory group\nMandatory Label\\Medium Mandatory Level   Label   S-1-16-8192\n";
+			String noLabel = "BUILTIN\\Users   Alias   S-1-5-32-545   Mandatory group\n";
+			s.command = c -> fakeWhoami(c, denyOnly);
+			T.that("A10 account facts: UAC administrator running normally is a member, not elevated", Arrays.equals(new String[] {"owner", "yes", "no"}, PlaytestLauncher.accountFacts(s)));
+			s.command = c -> fakeWhoami(c, elevated);
+			T.that("A10 account facts: Run as administrator (High integrity) is elevated", Arrays.equals(new String[] {"owner", "yes", "yes"}, PlaytestLauncher.accountFacts(s)));
+			s.command = c -> fakeWhoami(c, standard);
+			T.that("A10 account facts: a standard user is neither", Arrays.equals(new String[] {"owner", "no", "no"}, PlaytestLauncher.accountFacts(s)));
+			s.command = c -> fakeWhoami(c, noLabel);
+			T.that("A10 account facts: no integrity label means elevation unknown", Arrays.equals(new String[] {"owner", "no", null}, PlaytestLauncher.accountFacts(s)));
+			s.command = c -> null;
+			T.that("A10 account facts: whoami unavailable means unknown", Arrays.equals(new String[] {"owner", null, null}, PlaytestLauncher.accountFacts(s)));
+		}
+		deleteTree(rl);
+		wipeIfOurs();
+		T.that("A11 after the ordinary-account cases the dedicated launch is READY again", new PlaytestLauncher(settings()).check(true));
+		Path wrapper = Paths.get("playtest/Start-OwnerPlaytest.ps1"), root = Paths.get("START-R02.cmd");
+		if (Files.isRegularFile(wrapper) && Files.isRegularFile(root)) {
+			String ps = new String(Files.readAllBytes(wrapper), StandardCharsets.UTF_8), cmd = new String(Files.readAllBytes(root), StandardCharsets.UTF_8);
+			T.that("A12 quick launch: the wrapper has no Windows user-name gate and asks for no other account",
+				!ps.contains("[Environment]::UserName") && !ps.contains("RaccoonTest") && !ps.contains("$env:USERNAME"));
+			T.that("A12 quick launch: START-R02.cmd at the root still runs the checked wrapper", cmd.contains("playtest\\Start-OwnerPlaytest.ps1"));
+			T.that("A12 quick launch: the wrapper still runs the launcher's preflight before launch", ps.contains("RESULT: READY") && ps.indexOf(" check --package ") < ps.indexOf(" launch --package "));
+		} else {
+			System.out.println("  SKIP A12 quick-launch text checks: not run from the checkout root");
+		}
+	}
 
 	private static void deleteTree(Path p) throws IOException {
 		if (!Files.exists(p, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return;
