@@ -1,5 +1,5 @@
 # Raccoon R02 playtest classpath lock v1 (RuneLite client runtime classpath, SHA-256)
-# reviewed: no
+# reviewed: yes
 # Set 'reviewed: yes' only after an independent second resolution produced identical lines.
 runelite.version=1.13.8
 0addec670fedcd3f113c5c8091d783280d23f75e3acb841b61a9cdb079376a08 aopalliance:aopalliance:1.0 aopalliance-1.0.jar
