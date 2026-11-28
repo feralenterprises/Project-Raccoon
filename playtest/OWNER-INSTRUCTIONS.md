@@ -92,10 +92,13 @@ to Solis. Only Solis decides when the `PLAYTEST-STOPPED.txt` file may be removed
 ## What keeps this safe
 
 - **A separate Windows account.** Credential Manager, AppData and the registry used here are the test account's own.
-- **Its own folder.** The client's home, temporary files (including the Jagex sign-in browser's data) and Java
-  preferences all live in the playtest profile. Your real `.runelite`, the game cache, the Jagex files, the shared
-  Java preferences, the RuneLite SessionStore credential and the AppData folder names are recorded before and after
-  every run. Any change stops the launcher.
+- **Its own folder.** The client's home, temporary files (including the Jagex sign-in browser's data), Java
+  preferences, and the per-user folders Windows programs use (`USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `HOMEDRIVE`/
+  `HOMEPATH`) all point into the playtest profile. Everything else in the test account's home folder, including
+  everything inside AppData, is recorded before and after every run, together with the shared Java preferences and
+  the RuneLite SessionStore credential. Links and junctions are recorded, never followed. Any change, or anything that
+  cannot be read, stops the launcher. Windows itself sometimes writes in AppData while programs run; if that stops the
+  launcher, send the run folder to Solis as usual.
 - **No sign-in passed in.** Jagex launcher sign-in variables (`JX_...`) and injected Java options are removed. The
   client gets exactly `--developer-mode --disable-telemetry`.
 - **Nothing shown while signed in.** The playtest reads only whether you are on the login screen. Anywhere else, every
@@ -118,6 +121,9 @@ to Solis. Only Solis decides when the `PLAYTEST-STOPPED.txt` file may be removed
 | `not on a fetched feralenterprises GitHub remote` | Run `git fetch`. If it still fails, the commit has not been pushed yet. |
 | `host JAR was built from ...` / `preferences-isolation JAR` | Run the `prepare` step again. |
 | `no classpath lock` / `not marked independently reviewed` | Stop and ask Feral. The reviewed lock comes from his independent check. |
+| `goes through a link or junction` / `contains links, junctions or other redirections` | Don't remove anything yourself. Send the message to Solis. |
+| `protected locations could not be read` | Send the message to Solis. Nothing was started. |
+| `package payload` / `does not match SHA256SUMS.txt` / `not listed in SHA256SUMS.txt` | The review package folder was changed. Extract the accepted ZIP again into an empty folder. |
 | `... changed since it was resolved` / `differs from the lock` | Do not launch. Send the `check` output to Solis. |
 | `frozen package is not the accepted R02 package` | Re-extract the review ZIP and point at the `Project-Raccoon-R02` folder. |
 | `lane inputs ZIP is not the accepted one` | Use the accepted Lane Inputs ZIP, or leave `--lane-inputs` out. |

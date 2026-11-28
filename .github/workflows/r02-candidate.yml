@@ -42,7 +42,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '11.0.33'
+          java-version: '11.0.33+10'
       - name: Toolchain identity
         run: |
           java -version
@@ -81,7 +81,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '11.0.33'
+          java-version: '11.0.33+10'
       - name: Build the launcher
         run: ./gradlew --no-daemon launcherJar
       - name: Resolution A (compiles the host against the real RuneLite client 1.13.8)
@@ -100,12 +100,24 @@ jobs:
           for x in A B; do grep -v '^#' .ci/lock/classpath-$x.txt | cut -d' ' -f1,2 | sort > .ci/lock/resolved-$x.txt; done
           diff -u .ci/lock/resolved-A.txt .ci/lock/resolved-B.txt
           echo "agree: $(wc -l < .ci/lock/resolved-A.txt) lines (host JAR included)"
-      - name: Record the lock from resolution B (unreviewed)
+      - name: Record the lock from resolution B and compare it with the committed lock
         run: |
-          rm -f playtest/runelite-1.13.8.lock
+          set -e
+          committed=playtest/runelite-1.13.8.lock
+          if [ -f "$committed" ]; then mv "$committed" .ci/lock/committed.lock; fi
           java -jar build/libs/raccoon-r02-launcher.jar record-lock --repo .
-          cp playtest/runelite-1.13.8.lock .ci/lock/
+          cp "$committed" .ci/lock/runelite-1.13.8.lock
+          echo "----- recorded lock (public coordinates and SHA-256 only) -----"
+          cat .ci/lock/runelite-1.13.8.lock
+          echo "----- end of recorded lock -----"
           sha256sum .ci/lock/runelite-1.13.8.lock
+          if [ -f .ci/lock/committed.lock ]; then
+            grep -v '^# reviewed:' .ci/lock/committed.lock > .ci/lock/c.txt
+            grep -v '^# reviewed:' .ci/lock/runelite-1.13.8.lock > .ci/lock/r.txt
+            diff -u .ci/lock/c.txt .ci/lock/r.txt
+            echo "committed lock matches this independent resolution ($(grep -c '^[0-9a-f]\{64\} ' .ci/lock/r.txt) JARs)"
+            mv .ci/lock/committed.lock "$committed"
+          fi
       - name: Real-RuneLite compile record
         run: |
           ls -l playtest/host-plugin/build/libs/raccoon-r02-playtest-host.jar
