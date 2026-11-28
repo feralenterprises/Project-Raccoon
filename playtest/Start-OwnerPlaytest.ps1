@@ -7,6 +7,12 @@ $LaneName = 'Project-Raccoon-R02-Lane-Inputs.zip'
 $ReviewHash = 'ff4a67ab234b101c60c7d68ac5b714643c5952358683a90e1630189156f1d3ba'
 $LaneHash = '1f6a821d37705b7c7acdca9d598c2c5e7f74f7462536c9bf0f9039086545cece'
 $GradleHash = '682b4df7fe5accdca84a4d1ef6a3a6ab096b3efd5edf7de2bd8c758d95a93703'
+# The pinned JDK (ui-pins.properties jdk.version) is provisioned privately for Raccoon. The global JAVA_HOME, PATH and
+# any other Java (for example Burrow's Java 17) are never changed; only this process and its children use it.
+$JdkName = 'jdk-11.0.33+10'
+$JdkImplementor = 'Temurin-11.0.33+10'
+$JdkZipUrl = 'https://github.com/adoptium/temurin11-binaries/releases/download/jdk-11.0.33%2B10/OpenJDK11U-jdk_x64_windows_hotspot_11.0.33_10.zip'
+$JdkZipHash = 'cff2e75657c96a718974732b4a7b2c81a245a0b2ea44e6d8ea08cd0248d8fa9d'
 
 function Read-Git([string[]]$Arguments) {
     $result = & $script:GitExe @Arguments
@@ -71,11 +77,76 @@ function Confirm-Archive([string]$Path, [string]$Hash) {
     }
 }
 
+function Get-PlaytestRoot {
+    Join-Path $env:USERPROFILE 'RaccoonPlaytest'
+}
+
+function Test-PinnedJdk([string]$JdkHome) {
+    if (!$JdkHome) { return $false }
+    foreach ($exe in @('bin\java.exe','bin\javac.exe','release')) {
+        if (!(Test-Path -LiteralPath (Join-Path $JdkHome $exe) -PathType Leaf)) { return $false }
+    }
+    $release = Get-Content -LiteralPath (Join-Path $JdkHome 'release')
+    return ($release -ccontains 'IMPLEMENTOR="Eclipse Adoptium"') -and ($release -ccontains "IMPLEMENTOR_VERSION=`"$JdkImplementor`"") -and
+        ($release -ccontains 'OS_NAME="Windows"') -and ($release -ccontains 'OS_ARCH="x86_64"')
+}
+
+function Remove-OwnFolder([string]$Path) {
+    # Only plain folders the wrapper made under the playtest root; never through a link or junction.
+    if (!(Test-Path -LiteralPath $Path)) { return }
+    $item = Get-Item -LiteralPath $Path -Force
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Refusing to remove $Path (it is a link or junction). Send this message to Solis." }
+    Remove-Item -LiteralPath $Path -Recurse -Force
+}
+
+function Install-PinnedJdk([string]$Root, [string]$Url = $JdkZipUrl, [string]$Hash = $JdkZipHash) {
+    $jdkRoot = Join-Path $Root 'jdk'
+    $managed = Join-Path $jdkRoot $JdkName
+    if (Test-PinnedJdk $managed) { return $managed }
+    New-Item -ItemType Directory -Force -Path $jdkRoot | Out-Null
+    if (Test-Path -LiteralPath $managed) { Remove-OwnFolder $managed }
+    $id = [guid]::NewGuid().ToString('N')
+    $zip = Join-Path $jdkRoot ".download-$id.zip"
+    $extract = Join-Path $jdkRoot ".extract-$id"
+    try {
+        Write-Host "Downloading Temurin 11.0.33+10 for Raccoon only (about 190 MB, first time only). Your other Java installs are not changed."
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $client = New-Object Net.WebClient
+        try { $client.DownloadFile($Url, $zip) } catch { throw "Could not download the Raccoon Java runtime. Check the internet connection and retry. ($($_.Exception.Message))" } finally { $client.Dispose() }
+        if ((Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash -ine $Hash) {
+            throw 'The downloaded Java runtime does not match its pinned SHA-256. Nothing was installed. Retry; if it repeats, send this message to Solis.'
+        }
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [IO.Compression.ZipFile]::ExtractToDirectory($zip, $extract)
+        $unpacked = Join-Path $extract $JdkName
+        if (!(Test-PinnedJdk $unpacked)) { throw 'The downloaded Java runtime is not Temurin 11.0.33+10 for Windows x64. Send this message to Solis.' }
+        [IO.Directory]::Move($unpacked, $managed)
+    } finally {
+        if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+        if (Test-Path -LiteralPath $extract) { Remove-OwnFolder $extract }
+    }
+    if (!(Test-PinnedJdk $managed)) { throw 'The Raccoon Java runtime could not be installed. Send this message to Solis.' }
+    $managed
+}
+
+function Use-PinnedJdk([string]$Root) {
+    # An already-pinned JAVA_HOME is used as is; anything else (Java 17, unset) gets the private pinned JDK.
+    $jdk = if (Test-PinnedJdk $env:JAVA_HOME) { $env:JAVA_HOME } else { Install-PinnedJdk $Root }
+    # Process scope only: this window and the programs it starts. Nothing global is written.
+    $env:JAVA_HOME = $jdk
+    $env:PATH = "$(Join-Path $jdk 'bin');$env:PATH"
+    foreach ($name in @('JAVA_TOOL_OPTIONS','_JAVA_OPTIONS','JDK_JAVA_OPTIONS','JAVA_OPTIONS','CLASSPATH')) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
+    # Raccoon's own Gradle home: no user-wide gradle.properties (org.gradle.java.home, JVM flags) or init scripts from
+    # other projects apply, and nothing Raccoon downloads lands in theirs.
+    $env:GRADLE_USER_HOME = Join-Path $Root 'gradle-home'
+    $jdk
+}
+
 function Confirm-Toolchain([string]$Repo) {
-    if (!$env:JAVA_HOME) { throw 'Set JAVA_HOME to the installed Temurin 11.0.33+10 JDK.' }
+    if (!$env:JAVA_HOME) { throw 'The Raccoon Java runtime was not set up. Send this message to Solis.' }
     $java = Join-Path $env:JAVA_HOME 'bin\java.exe'
     if (!(Test-Path -LiteralPath $java -PathType Leaf) -or !(Test-Path -LiteralPath (Join-Path $env:JAVA_HOME 'bin\javac.exe') -PathType Leaf)) {
-        throw 'JAVA_HOME must point to the Temurin 11.0.33+10 JDK folder, above bin.'
+        throw 'The Raccoon Java runtime is incomplete. Delete %USERPROFILE%\RaccoonPlaytest\jdk and retry.'
     }
     $properties = Get-Content -LiteralPath (Join-Path $Repo 'gradle\wrapper\gradle-wrapper.properties')
     if ($properties -cnotcontains "distributionSha256Sum=$GradleHash" -or
@@ -85,7 +156,7 @@ function Confirm-Toolchain([string]$Repo) {
     $ErrorActionPreference = 'Continue'
     $version = & $java -version 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0 -or $version -notmatch '\bTemurin-11\.0\.33\+10\b') {
-        throw 'JAVA_HOME must point to Temurin 11.0.33+10.'
+        throw 'The Raccoon Java runtime is not Temurin 11.0.33+10. Delete %USERPROFILE%\RaccoonPlaytest\jdk and retry.'
     }
     $version = & (Join-Path $Repo 'gradlew.bat') --no-daemon --version 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0 -or $version -notmatch '(?m)^Gradle 8\.10\s*$') {
@@ -117,15 +188,18 @@ function Invoke-Playtest {
     # Solis promotes only explicitly cleared exact SHAs to this owner-facing branch.
     Confirm-RemoteCandidate $sha
 
-    $inputs = Join-Path $env:USERPROFILE 'RaccoonPlaytest\inputs'
+    $root = Get-PlaytestRoot
+    $inputs = Join-Path $root 'inputs'
     $separator = [IO.Path]::DirectorySeparatorChar
-    if (([IO.Path]::GetFullPath($inputs) + $separator).StartsWith($repo.TrimEnd($separator) + $separator,[StringComparison]::OrdinalIgnoreCase)) {
-        throw 'Keep the private inputs outside the GitHub Desktop checkout.'
+    if (([IO.Path]::GetFullPath($root) + $separator).StartsWith($repo.TrimEnd($separator) + $separator,[StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Keep %USERPROFILE%\RaccoonPlaytest (private inputs and the Raccoon Java runtime) outside the GitHub Desktop checkout.'
     }
     $reviewZip = Join-Path $inputs $ReviewName
     $lanes = Join-Path $inputs $LaneName
     Confirm-Archive $reviewZip $ReviewHash
     Confirm-Archive $lanes $LaneHash
+    $jdk = Use-PinnedJdk $root
+    Write-Host "Raccoon Java runtime: $jdk"
     Confirm-Toolchain $repo
 
     $review = Join-Path $inputs 'Project-Raccoon-R02'
@@ -147,6 +221,7 @@ function Invoke-Playtest {
         if (Test-NeedingPrepare $repo $sha) { throw 'Preparation did not produce the expected build. Send the console output to Solis.' }
     }
     if ((Get-CheckedOutCandidate $repo) -cne $sha) { throw 'The checkout changed during preparation. Pull origin and retry.' }
+    Write-Host 'Close every RuneLite window (including the Burrow developer client) and the Jagex Launcher before continuing.'
     $report = @(& $launcher check --package $review --lane-inputs $lanes)
     $exitCode = $LASTEXITCODE
     $report | Out-Host

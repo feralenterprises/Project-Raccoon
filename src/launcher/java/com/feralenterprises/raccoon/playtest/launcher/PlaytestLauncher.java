@@ -524,8 +524,12 @@ public final class PlaytestLauncher {
 	}
 
 	/** Fail closed: the protected locations must be readable now, in check as in launch. */
+	/** The protected-location snapshot taken by the last check (compared with the launch's own on an ordinary account). */
+	private Snapshot checked;
+
 	private void checkProtectedLocations() {
 		Snapshot sn = safeSnapshot();
+		checked = sn;
 		if (!sn.incomplete.isEmpty()) fail("protected locations could not be read " + first(sn.incomplete) + "; nothing can be started");
 		else pass("protected locations outside the profile readable (" + sn.entries.size() + " entries)");
 	}
@@ -974,9 +978,18 @@ public final class PlaytestLauncher {
 			for (Path f : profileFolders()) Files.createDirectories(f);
 			List<String> unsafe = unsafeEntries(profile);
 			if (!unsafe.isEmpty()) { s.out.println("RESULT: REFUSED (the profile contains links, junctions or other redirections " + first(unsafe) + ")"); return 1; }
+			s.phase.accept("launch:checked");
 			Snapshot before = safeSnapshot();
 			if (!before.incomplete.isEmpty()) {
 				s.out.println("RESULT: REFUSED (protected locations could not be read: " + first(before.incomplete) + ")");
+				return 1;
+			}
+			// An ordinary account may have its own RuneLite (or a Burrow developer client) open: if a watched location is
+			// already changing before the client starts, refuse now instead of latching after the run.
+			List<String> moving = ordinaryAccount() && checked != null ? checked.changes(before) : Collections.<String>emptyList();
+			if (!moving.isEmpty()) {
+				s.out.println("RESULT: REFUSED (your RuneLite folders changed while the playtest was being checked " + first(moving)
+					+ "; close every RuneLite window, including a Burrow developer client, and the Jagex Launcher, then retry)");
 				return 1;
 			}
 			String runId = "run-" + ZonedDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
