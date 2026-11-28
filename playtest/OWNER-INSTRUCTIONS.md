@@ -6,6 +6,17 @@ RuneLite.
 
 **Do not run the `launch` step until Solis has cleared the native launch.** You can do everything up to `check` now.
 
+## GitHub Desktop quick launch
+
+**Once:** On the dedicated standard `RaccoonTest` Windows account, install Temurin **11.0.33+10** and set `JAVA_HOME` to its JDK folder. Open the Project Raccoon checkout in GitHub Desktop and select `test/r02-windows-playtest`. Copy these two intact ZIPs from the cleared private owner package into `%USERPROFILE%\RaccoonPlaytest\inputs`, outside the repository:
+
+- `Project-Raccoon-R02-Review.zip`
+- `Project-Raccoon-R02-Lane-Inputs.zip`
+
+**Every playtest:** Pull origin in GitHub Desktop. Choose **Repository → Show in Explorer** and double-click **START-R02.cmd** at the repository root. It prepares the build automatically when needed and starts RuneLite only after the existing preflight reports READY. Stay at the RuneLite login screen. If the console stops on an error, keep its message for Solis.
+
+Solis promotes explicitly cleared commits to the canonical playtest branch. The quick launcher checks that the local branch, its tracked origin SHA and the live GitHub branch SHA all agree. The manual commands below are available for troubleshooting.
+
 ## What you need (once)
 
 1. **A dedicated standard Windows account** whose name starts with `RaccoonTest` (for example `RaccoonTest`), the
