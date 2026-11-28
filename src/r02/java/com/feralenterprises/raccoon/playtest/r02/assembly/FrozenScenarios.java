@@ -146,6 +146,14 @@ public final class FrozenScenarios {
 		return b.build();
 	}
 
+	/**
+	 * Frozen {@code incompleteRetained}: an incomplete bank observation (no quantities of its own) that retains the earlier
+	 * complete capture as HISTORICAL evidence. (Seam: not yet retaining.)
+	 */
+	public static ContainerObservation incompleteRetaining(Map<Integer, Long> complete, String src) {
+		return new ContainerObservation(Container.BANK, ContainerState.INCOMPLETE, FrozenDataset.bankTime(false), src + ", incomplete", Collections.<Integer, Long>emptyMap());
+	}
+
 	private ContainerObservation bank(Selection s) {
 		// bankAuthority: populated/empty/historical keep a complete snapshot; awaiting and (non-retained) incomplete have none.
 		Map<Integer, Long> items = new LinkedHashMap<>();

@@ -65,6 +65,7 @@ public final class ContractTests {
 		// Lane C retained-bank evidence (Claude 2, b27e06c): permanent, synthetic quantities, no private inputs.
 		try { com.feralenterprises.raccoon.playtest.r02.panel.bank.RetainedBankRegression.run((n, ok) -> check("retained bank: " + n, ok)); }
 		catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
+		try { scenarioRetain(); } catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
 		try { SharedGapTests.run(ContractTests::check); } catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
 		try { FrozenDataTests.literals(ContractTests::check); } catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
 		if (pkg != null) {
@@ -321,6 +322,29 @@ public final class ContractTests {
 			d.retire();
 			check("fence: retire is idempotent", d.retired() && d.current() == state[0]);
 		});
+	}
+
+	/**
+	 * Retained-bank scenario (assembly side of Claude 2's b27e06c): the playtest's incomplete-retained bank is an
+	 * INCOMPLETE observation that claims nothing itself and retains the earlier complete capture as HISTORICAL.
+	 * Synthetic quantities; no private inputs.
+	 */
+	static void scenarioRetain() {
+		Map<Integer, Long> complete = new java.util.LinkedHashMap<>();
+		complete.put(995, 1_000L);
+		complete.put(1511, 85L);
+		com.feralenterprises.raccoon.playtest.r02.fixture.ContainerObservation o =
+			com.feralenterprises.raccoon.playtest.r02.assembly.FrozenScenarios.incompleteRetaining(complete, "synthetic");
+		check("scenario retain: the observation itself is incomplete and claims no quantity", o.state() == ContainerState.INCOMPLETE
+			&& o.items().isEmpty() && o.quantity(995).status() == EvidenceStatus.UNKNOWN && o.quantity(359).status() == EvidenceStatus.UNKNOWN);
+		com.feralenterprises.raccoon.playtest.r02.fixture.ContainerObservation r = o.retained();
+		check("scenario retain: the earlier complete capture is retained as historical", r != null && r.state() == ContainerState.HISTORICAL
+			&& r.container() == Container.BANK && r.items().equals(complete));
+		check("scenario retain: the retained capture is the older one", r != null && r.observedAt().isBefore(o.observedAt()));
+		check("scenario retain: the playtest offers it as its own bank state", Arrays.stream(com.feralenterprises.raccoon.playtest.r02.assembly.FrozenScenarios.BankState.values())
+			.anyMatch(b -> b.name().equals("INCOMPLETE_RETAINED")));
+		check("scenario retain: plain incomplete still retains nothing", Arrays.stream(com.feralenterprises.raccoon.playtest.r02.assembly.FrozenScenarios.BankState.values())
+			.anyMatch(b -> b.name().equals("INCOMPLETE")));
 	}
 
 	static void composition() {

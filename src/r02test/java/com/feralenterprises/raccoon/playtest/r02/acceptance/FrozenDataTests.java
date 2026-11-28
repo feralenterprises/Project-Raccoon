@@ -159,6 +159,16 @@ final class FrozenDataTests {
 		check.accept("bank historical: stale values, unknown absence", sc.snapshot(Selection.demoA(1).withBank(BankState.HISTORICAL), 3, 1, now).container(Container.BANK).quantity(1511).status() == EvidenceStatus.STALE
 			&& sc.snapshot(Selection.demoA(1).withBank(BankState.HISTORICAL), 3, 1, now).container(Container.BANK).quantity(359).status() == EvidenceStatus.UNKNOWN);
 		check.accept("bank empty: verified empty", sc.snapshot(Selection.demoA(1).withBank(BankState.EMPTY), 3, 1, now).container(Container.BANK).verifiedEmpty());
+		{
+			com.feralenterprises.raccoon.playtest.r02.fixture.ContainerObservation ir =
+				sc.snapshot(Selection.demoA(1).withBank(BankState.valueOf("INCOMPLETE_RETAINED")), 3, 1, now).container(Container.BANK);
+			com.feralenterprises.raccoon.playtest.r02.fixture.ContainerObservation full =
+				sc.snapshot(Selection.demoA(1).withBank(BankState.HISTORICAL), 3, 1, now).container(Container.BANK);
+			check.accept("bank incomplete-retained: incomplete, claims nothing, retains the frozen complete capture as historical",
+				ir.state() == com.feralenterprises.raccoon.playtest.r02.fixture.ContainerState.INCOMPLETE && ir.items().isEmpty()
+				&& ir.retained() != null && ir.retained().state() == com.feralenterprises.raccoon.playtest.r02.fixture.ContainerState.HISTORICAL
+				&& ir.retained().items().equals(full.items()));
+		}
 		check.accept("bank incomplete: no ownership claim", sc.snapshot(Selection.demoA(1).withBank(BankState.INCOMPLETE), 3, 1, now).container(Container.BANK).quantity(1511).status() == EvidenceStatus.UNKNOWN);
 		check.accept("bank awaiting: unavailable", sc.snapshot(Selection.demoA(1).withBank(BankState.AWAITING), 3, 1, now).container(Container.BANK).state() == ContainerState.UNAVAILABLE);
 		FixtureSnapshot ap = sc.snapshot(Selection.demoA(1).withArchive(ArchiveState.PARTIAL), 3, 1, now);
