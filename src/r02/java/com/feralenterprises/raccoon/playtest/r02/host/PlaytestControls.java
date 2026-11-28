@@ -114,7 +114,7 @@ public final class PlaytestControls extends JPanel {
 	}
 
 	private static String title(Enum<?> e) {
-		String n = e.name().toLowerCase();
+		String n = e.name().toLowerCase().replace('_', ' ');
 		return Character.toUpperCase(n.charAt(0)) + n.substring(1);
 	}
 }

@@ -27,7 +27,7 @@ import java.util.Objects;
  */
 public final class FrozenScenarios {
 	/** Frozen bank simulator states. */
-	public enum BankState { POPULATED, HISTORICAL, AWAITING, INCOMPLETE, EMPTY }
+	public enum BankState { POPULATED, HISTORICAL, AWAITING, INCOMPLETE, INCOMPLETE_RETAINED, EMPTY }
 	/** Frozen Feral Files archive states ({@code ffArchiveStates}). */
 	public enum ArchiveState { POPULATED, PARTIAL, EMPTY, UNKNOWN }
 
@@ -148,14 +148,17 @@ public final class FrozenScenarios {
 
 	/**
 	 * Frozen {@code incompleteRetained}: an incomplete bank observation (no quantities of its own) that retains the earlier
-	 * complete capture as HISTORICAL evidence. (Seam: not yet retaining.)
+	 * complete capture as HISTORICAL evidence, taken at the frozen historical bank time (older than the incomplete one).
 	 */
 	public static ContainerObservation incompleteRetaining(Map<Integer, Long> complete, String src) {
-		return new ContainerObservation(Container.BANK, ContainerState.INCOMPLETE, FrozenDataset.bankTime(false), src + ", incomplete", Collections.<Integer, Long>emptyMap());
+		ContainerObservation earlier = new ContainerObservation(Container.BANK, ContainerState.HISTORICAL, FrozenDataset.bankTime(true), src + ", saved", complete);
+		return new ContainerObservation(Container.BANK, ContainerState.INCOMPLETE, FrozenDataset.bankTime(false), src + ", incomplete",
+			Collections.<Integer, Long>emptyMap()).withRetained(earlier);
 	}
 
 	private ContainerObservation bank(Selection s) {
-		// bankAuthority: populated/empty/historical keep a complete snapshot; awaiting and (non-retained) incomplete have none.
+		// bankAuthority: populated/empty/historical keep a complete snapshot; awaiting and (non-retained) incomplete have none;
+		// incomplete-retained shows only the earlier complete capture, as saved (frozen incompleteRetained).
 		Map<Integer, Long> items = new LinkedHashMap<>();
 		if ("A".equals(s.account)) for (FrozenDataset.BankRow r : data.bankCatalog()) items.merge(r.id, r.quantity, Long::sum);
 		else items.putAll(data.bankSampleB());
@@ -165,6 +168,7 @@ public final class FrozenScenarios {
 			case EMPTY: return new ContainerObservation(Container.BANK, ContainerState.CURRENT, FrozenDataset.bankTime(false), src, Collections.<Integer, Long>emptyMap());
 			case HISTORICAL: return new ContainerObservation(Container.BANK, ContainerState.HISTORICAL, FrozenDataset.bankTime(true), src + ", saved", items);
 			case INCOMPLETE: return new ContainerObservation(Container.BANK, ContainerState.INCOMPLETE, FrozenDataset.bankTime(false), src + ", incomplete", Collections.<Integer, Long>emptyMap());
+			case INCOMPLETE_RETAINED: return incompleteRetaining(items, src);
 			default: return ContainerObservation.unavailable(Container.BANK);
 		}
 	}
