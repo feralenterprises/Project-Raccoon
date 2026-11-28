@@ -9,9 +9,12 @@ setlocal
 set "REPO=%~dp0.."
 if "%JAVA_HOME%"=="" ( echo Set JAVA_HOME to Temurin 11.0.33 first. & exit /b 2 )
 if "%~1"=="" ( echo usage: r02-playtest.cmd prepare^|record-lock^|check^|launch^|wipe ["PACKAGE-FOLDER"] [--scale S] & exit /b 2 )
+rem Test ERRORLEVEL after each gradlew call: an OR-operator after CALL missed a failed Gradle build.
 if /i "%~1"=="prepare" (
-  call "%REPO%\gradlew.bat" --no-daemon -p "%REPO%" launcherJar || exit /b 1
-  call "%REPO%\gradlew.bat" --no-daemon -p "%REPO%\playtest\host-plugin" playtestClasspath || exit /b 1
+  call "%REPO%\gradlew.bat" --no-daemon -p "%REPO%" launcherJar
+  if errorlevel 1 exit /b 1
+  call "%REPO%\gradlew.bat" --no-daemon -p "%REPO%\playtest\host-plugin" playtestClasspath
+  if errorlevel 1 exit /b 1
   echo Prepared. Next: r02-playtest.cmd check "PACKAGE-FOLDER"
   exit /b 0
 )

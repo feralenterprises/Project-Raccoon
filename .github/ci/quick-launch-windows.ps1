@@ -67,6 +67,11 @@ Assert 'the wrapper toolchain check passes (pinned JDK, Gradle 8.10 pin and run)
 $sha = (& $script:GitExe -C $repo rev-parse HEAD).Trim()
 Assert 'a fresh checkout needs preparation' (Test-NeedingPrepare $repo $sha)
 $launcher = Join-Path $repo 'playtest\r02-playtest.cmd'
+$env:JAVA_HOME = $java17
+& $launcher prepare | Out-Host
+$failedExit = $LASTEXITCODE
+$env:JAVA_HOME = $jdk
+Assert "a failing preparation (here: Java 17 instead of the pin) exits nonzero ($failedExit), never silently 0" ($failedExit -ne 0)
 & $launcher prepare | Out-Host
 Assert 'prepare succeeds (launcher, isolation JAR, host compiled against RuneLite 1.13.8, classpath resolved)' ($LASTEXITCODE -eq 0)
 Assert 'after preparation the wrapper does not prepare again' (!(Test-NeedingPrepare $repo $sha))
