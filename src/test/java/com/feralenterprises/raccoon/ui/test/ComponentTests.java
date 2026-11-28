@@ -57,7 +57,9 @@ public final class ComponentTests {
 				failures.add("exception: " + t);
 			}
 		});
-		System.out.println("ComponentTests: " + passed + " passed, " + failures.size() + " failed");
+		System.out.println("ComponentTests: " + passed + " passed, " + failures.size() + " failed"
+			+ (skipped.isEmpty() ? "" : ", " + skipped.size() + " SKIPPED (private review-assets absent, -PnoReviewAssets)"));
+		skipped.forEach(f -> System.out.println("  SKIP " + f));
 		failures.forEach(f -> System.out.println("  FAIL " + f));
 		System.exit(failures.isEmpty() ? 0 : 1);
 	}
@@ -65,6 +67,20 @@ public final class ComponentTests {
 	static void check(String name, boolean ok) {
 		if (ok) passed++; else failures.add(name);
 	}
+
+	/**
+	 * A check that needs the private review art (review-assets/, never committed). Only when the build is told the art
+	 * is absent (-PnoReviewAssets, used by CI) and it really is absent is the check skipped, visibly and counted;
+	 * otherwise it runs, so a local build without the art still fails these checks.
+	 */
+	static void artCheck(String name, boolean ok) {
+		if ("absent".equals(System.getProperty("raccoon.reviewAssets")) && !java.nio.file.Files.isDirectory(Paths.get("review-assets"))) {
+			skipped.add(name);
+			return;
+		}
+		check(name, ok);
+	}
+	static final java.util.List<String> skipped = new java.util.ArrayList<>();
 
 	static WorkbenchPages pages(Skin skin, TextScale text, int width) {
 		UiContext ctx = Workbench.context(Paths.get("review-assets"));
@@ -247,12 +263,13 @@ public final class ComponentTests {
 				&& g.slotRect(EquipmentSlot.BODY).y < g.slotRect(EquipmentSlot.LEGS).y && g.slotRect(EquipmentSlot.LEGS).y < g.slotRect(EquipmentSlot.FEET).y);
 		check("equipment: grid centred in the content width", Math.abs(g.slotRect(EquipmentSlot.CAPE).x - (g.getWidth() - g.slotRect(EquipmentSlot.RING).x - Tokens.EQUIP_SLOT)) <= 1);
 		Offscreen.paint(g, 1.0);
-		check("equipment: active fixture paints 5 real item images (glory has no fixture image)", g.lastPaintedItems() == 5);
+		artCheck("equipment: active fixture paints 5 real item images (glory has no fixture image)", g.lastPaintedItems() == 5);
 		check("equipment: tooltip names the item", "Head: Helm of neitiznot".equals(g.getToolTipText(at(g, g.slotRect(EquipmentSlot.HEAD)))));
 		check("equipment: tooltip for empty slot", "Ammo: empty".equals(g.getToolTipText(at(g, g.slotRect(EquipmentSlot.AMMO)))));
 		p.gearLoadoutSelector.setSelected(1);
 		Offscreen.paint(g, 1.0);
-		check("equipment: dynamic update removes weapon", g.model().item(EquipmentSlot.WEAPON) == null && g.lastPaintedItems() == 4);
+		check("equipment: dynamic update removes weapon from the model", g.model().item(EquipmentSlot.WEAPON) == null);
+		artCheck("equipment: dynamic update removes weapon", g.model().item(EquipmentSlot.WEAPON) == null && g.lastPaintedItems() == 4);
 		for (DataState s : new DataState[]{DataState.EMPTY, DataState.LOADING, DataState.UNAVAILABLE}) {
 			p.setGearState(s);
 			Offscreen.paint(g, 1.0);
@@ -263,7 +280,7 @@ public final class ComponentTests {
 		p.setGearState(DataState.STALE);
 		p.gearLoadoutSelector.setSelected(0);
 		Offscreen.paint(g, 1.0);
-		check("equipment: stale still shows last known items", g.lastPaintedItems() == 5);
+		artCheck("equipment: stale still shows last known items", g.lastPaintedItems() == 5);
 	}
 
 	static MouseEvent at(JComponent c, Rectangle r) {
@@ -283,7 +300,7 @@ public final class ComponentTests {
 			g.slotRect(0).x < g.slotRect(3).x && g.slotRect(0).y == g.slotRect(3).y && g.slotRect(27).x == g.slotRect(3).x && g.slotRect(27).y > g.slotRect(24).y - 1);
 		check("inventory: native pitch 42 x 36", g.slotRect(1).x - g.slotRect(0).x == 42 && g.slotRect(4).y - g.slotRect(0).y == 36);
 		Offscreen.paint(g, 1.0);
-		check("inventory: paints 4 fixture images (coins has no fixture image)", g.lastPaintedItems() == 4);
+		artCheck("inventory: paints 4 fixture images (coins has no fixture image)", g.lastPaintedItems() == 4);
 		check("inventory: tooltip shows quantity", "Slot 5: Coins x 125000".equals(g.getToolTipText(at(g, g.slotRect(4)))));
 		check("inventory: quantity text and colours follow native rules",
 			ItemSlots.quantityText(99_999).equals("99999") && ItemSlots.quantityColor(99_999).equals(ItemSlots.QTY_YELLOW)

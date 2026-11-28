@@ -58,12 +58,28 @@ public final class HardeningTests {
 			}
 		});
 		asyncFencing();
-		System.out.println("HardeningTests: " + passed + " passed, " + failures.size() + " failed");
+		System.out.println("HardeningTests: " + passed + " passed, " + failures.size() + " failed"
+			+ (skipped.isEmpty() ? "" : ", " + skipped.size() + " SKIPPED (private review-assets absent, -PnoReviewAssets)"));
+		skipped.forEach(f -> System.out.println("  SKIP " + f));
 		failures.forEach(f -> System.out.println("  FAIL " + f));
 		System.exit(failures.isEmpty() ? 0 : 1);
 	}
 
 	static void check(String name, boolean ok) { if (ok) passed++; else failures.add(name); }
+
+	/**
+	 * A check that needs the private review art (review-assets/, never committed). Only when the build is told the art
+	 * is absent (-PnoReviewAssets, used by CI) and it really is absent is the check skipped, visibly and counted;
+	 * otherwise it runs, so a local build without the art still fails these checks.
+	 */
+	static void artCheck(String name, boolean ok) {
+		if ("absent".equals(System.getProperty("raccoon.reviewAssets")) && !java.nio.file.Files.isDirectory(Paths.get("review-assets"))) {
+			skipped.add(name);
+			return;
+		}
+		check(name, ok);
+	}
+	static final java.util.List<String> skipped = new java.util.ArrayList<>();
 
 	static UiContext ctx(FixtureAssetProvider assets) { return new UiContext(new DefaultFontSource(), assets); }
 
@@ -254,7 +270,7 @@ public final class HardeningTests {
 		SwingUtilities.invokeAndWait(() -> { });
 		check("async: callbacks issued for the replaced model are ignored", g[0].fence().ignoredCallbacks() >= 5);
 		SwingUtilities.invokeAndWait(() -> Offscreen.paint(g[0], 1.0));
-		check("async: images appear once loaded", g[0].lastPaintedItems() == 4);
+		artCheck("async: images appear once loaded", g[0].lastPaintedItems() == 4);
 		a.setAsyncDelayMs(150);
 		SwingUtilities.invokeAndWait(() -> { Offscreen.paint(g[0], 1.0); g[0].dispose(); });
 		int before = g[0].fence().ignoredCallbacks();

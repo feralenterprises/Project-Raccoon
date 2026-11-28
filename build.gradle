@@ -156,17 +156,22 @@ tasks.register('fetchFoundationCore', Exec) {
 
 def headless = { JavaExec t -> t.systemProperty 'java.awt.headless', 'true' }
 
+// The private review art (review-assets/) is never committed. CI passes -PnoReviewAssets: the checks that paint it are
+// then reported as SKIPPED (counted, by name). Without the flag they run and fail when the art is missing.
+def reviewArt = { JavaExec t -> if (project.hasProperty('noReviewAssets')) t.systemProperty 'raccoon.reviewAssets', 'absent' }
 tasks.register('componentTests', JavaExec) {
 	group = 'verification'
 	classpath = sourceSets.uitest.runtimeClasspath
 	mainClass = 'com.feralenterprises.raccoon.ui.test.ComponentTests'
 	headless(it)
+	reviewArt(it)
 }
 tasks.register('hardeningTests', JavaExec) {
 	group = 'verification'
 	classpath = sourceSets.uitest.runtimeClasspath
 	mainClass = 'com.feralenterprises.raccoon.ui.test.HardeningTests'
 	headless(it)
+	reviewArt(it)
 }
 tasks.register('routeTests', JavaExec) {
 	group = 'verification'

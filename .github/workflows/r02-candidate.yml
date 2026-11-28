@@ -1,0 +1,119 @@
+# R02 final-assembly candidate: the mandatory pinned-toolchain acceptance gate and the RuneLite 1.13.8 runtime
+# classpath lock. Public inputs only: this repository, the pinned foundation commit and RuneLite's public source.
+# Private inputs (frozen review package, Lane Inputs ZIP, review art) never enter CI; checks that need them are
+# reported SKIPPED by name. Nothing here starts the RuneLite client or touches an account.
+name: r02-candidate
+
+on:
+  push:
+    branches: ['dev/r02-final-assembly']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FOUNDATION_COMMIT: aefb1d79f680ef2c184e24b82e487db08d05c879
+  RUNELITE_COMMIT: 8397ec7131ec029bef30ab8ae835b3eb3ebffd9a
+
+jobs:
+  pinned-gate:
+    name: pinned gate (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Fetch the pinned foundation commit (read-only input)
+        run: git fetch --depth=1 origin "$FOUNDATION_COMMIT"
+      - uses: actions/checkout@v4
+        with:
+          repository: runelite/runelite
+          ref: ${{ env.RUNELITE_COMMIT }}
+          path: .ci/runelite
+          fetch-depth: 1
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11.0.33'
+      - name: Toolchain identity
+        run: |
+          java -version
+          ./gradlew --no-daemon --version
+          grep -E '^distribution(Url|Sha256Sum)=' gradle/wrapper/gradle-wrapper.properties
+      - name: Extract foundation core.account at the pin
+        run: ./gradlew --no-daemon fetchFoundationCore -PfoundationRepo="$GITHUB_WORKSPACE"
+      - name: Full check on the pinned toolchain (-Werror)
+        run: |
+          set -o pipefail
+          if [ "$RUNNER_OS" = Linux ]; then run="xvfb-run -a"; else run=""; fi
+          $run ./gradlew --no-daemon clean check -PruneliteSource="$GITHUB_WORKSPACE/.ci/runelite" -PnoReviewAssets 2>&1 | tee check.log
+      - name: Results
+        if: always()
+        run: grep -E '(passed|failed)|SKIP|SKIPPED|PASS$|UNPINNED|FAIL' check.log | grep -v '^\s*PASS ' || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r02-pinned-gate-${{ matrix.os }}
+          path: check.log
+
+  classpath-lock:
+    name: classpath resolution and lock (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11.0.33'
+      - name: Build the launcher
+        run: ./gradlew --no-daemon launcherJar
+      - name: Resolution A (compiles the host against the real RuneLite client 1.13.8)
+        run: |
+          ./gradlew --no-daemon -p playtest/host-plugin playtestClasspath
+          mkdir -p .ci/lock
+          cp playtest/host-plugin/build/playtest/classpath.txt .ci/lock/classpath-A.txt
+      - name: Resolution B (fresh Gradle home, independent download)
+        run: |
+          export GRADLE_USER_HOME="$RUNNER_TEMP/gradle-home-b"
+          ./gradlew --no-daemon -p playtest/host-plugin clean playtestClasspath
+          cp playtest/host-plugin/build/playtest/classpath.txt .ci/lock/classpath-B.txt
+      - name: A and B must agree exactly (SHA-256 and coordinate of every JAR)
+        run: |
+          set -e
+          for x in A B; do grep -v '^#' .ci/lock/classpath-$x.txt | cut -d' ' -f1,2 | sort > .ci/lock/resolved-$x.txt; done
+          diff -u .ci/lock/resolved-A.txt .ci/lock/resolved-B.txt
+          echo "agree: $(wc -l < .ci/lock/resolved-A.txt) lines (host JAR included)"
+      - name: Record the lock from resolution B (unreviewed)
+        run: |
+          rm -f playtest/runelite-1.13.8.lock
+          java -jar build/libs/raccoon-r02-launcher.jar record-lock --repo .
+          cp playtest/runelite-1.13.8.lock .ci/lock/
+          sha256sum .ci/lock/runelite-1.13.8.lock
+      - name: Real-RuneLite compile record
+        run: |
+          ls -l playtest/host-plugin/build/libs/raccoon-r02-playtest-host.jar
+          grep -c ' ' .ci/lock/resolved-B.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r02-classpath-lock-${{ matrix.os }}
+          path: |
+            .ci/lock/resolved-A.txt
+            .ci/lock/resolved-B.txt
+            .ci/lock/runelite-1.13.8.lock
