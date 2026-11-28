@@ -283,11 +283,39 @@ public final class CombatLaneTests {
 		click("chronicle-plan");
 		check("typed Pathfinder requirement target", comp.navigator().currentRequest().equals(
 			RouteRequest.of("pathfinder", RouteRequest.Param.MILESTONE, "the-ides-of-milk")));
+		senderBack();
 		navigate(RouteId.CHRONICLE, "dagannoth-kings");
 		check("D-18 three independently unknown Dagannoth counts", hasText("Rex KC: Unknown") && hasText("Prime KC: Unknown")
 			&& hasText("Supreme KC: Unknown"));
 		navigate(RouteId.CHRONICLE, "hespori");
 		check("D-18 explicit unknown difficulty distinct from missing KC", hasText("Difficulty unavailable") && hasText("Official KC: Unknown"));
+	}
+
+	/**
+	 * Integrated-repair regression (Solis checkpoint 2026-11-27): a typed ENCOUNTER entry into Chronicle is the sender's
+	 * context, as in Outfitter and Pathfinder, so one Back returns to the sender; a detail opened from the index stays a
+	 * local level; a plain visit drops a typed detail and Back-returning keeps it.
+	 */
+	private void senderBack() {
+		comp.navigator().navigate("outfit");
+		navigate(RouteId.CHRONICLE, "vorkath");
+		check("typed ENCOUNTER opens the Chronicle detail", find(page(), "chronicle-tabs") != null && !local().hasLocalBack());
+		comp.shell().header().back().doClick();
+		check("one Back after a typed Chronicle entry returns to the sender", "outfit".equals(comp.navigator().current()));
+		comp.navigator().navigate("chronicle");
+		navigate(RouteId.OUTFIT, "vorkath");
+		comp.shell().header().back().doClick();
+		check("one Back after a typed Outfitter entry returns to the sender (same rule)", "chronicle".equals(comp.navigator().current()));
+		navigate(RouteId.CHRONICLE, "vorkath");
+		comp.navigator().navigate("chronicle");
+		check("a plain Chronicle visit drops the sender's typed detail", find(page(), "chronicle-tabs") == null && count(page(), "chronicle-boss-") > 0);
+		get("chronicle-search", JTextField.class).setText("vorkath");
+		click("chronicle-boss-vorkath");
+		check("a detail opened from the index is a local Back level", local().hasLocalBack());
+		comp.shell().header().back().doClick();
+		check("local Back closes the index-opened detail and stays in Chronicle", "chronicle".equals(comp.navigator().current())
+			&& find(page(), "chronicle-tabs") == null);
+		get("chronicle-search", JTextField.class).setText("");
 	}
 
 	private void catalogAndLayout() {

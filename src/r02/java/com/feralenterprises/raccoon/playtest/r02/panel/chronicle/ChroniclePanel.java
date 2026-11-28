@@ -76,6 +76,8 @@ final class ChroniclePanel extends StackPanel implements LocalBack, RouteAware {
 	private Sort sort = Sort.EASY;
 	private String approach = "all", query = "";
 	private Encounter selected;
+	/** The detail was opened by a typed ENCOUNTER: it is the sender's context, not a local Back level (frozen R02). */
+	private boolean fromRoute;
 	private Tab tab = Tab.OVERVIEW;
 	private Point indexScroll;
 	private Runnable onBackChanged = () -> { };
@@ -239,7 +241,7 @@ final class ChroniclePanel extends StackPanel implements LocalBack, RouteAware {
 			if (!e.approaches.isEmpty()) text.add(icons(e.approaches));
 			FolioButton entry = new FolioButton(ui, "chronicle-boss-" + e.key,
 				name(e) + ", " + kcLabel(e) + ", " + access(e) + ", " + e.difficulty, portraitRow(e, text, 47, 49),
-				() -> open(e));
+				() -> open(e, false));
 			rows.add(entry);
 			openers.put(e.key, entry);
 		}
@@ -258,9 +260,10 @@ final class ChroniclePanel extends StackPanel implements LocalBack, RouteAware {
 		return new PictureRow(picture(ui, context.assets().portrait(e.key), name(e), width, height), body, width, height, 6);
 	}
 
-	private void open(Encounter e) {
+	private void open(Encounter e, boolean typed) {
 		if (selected == null) indexScroll = position(this);
 		selected = e;
+		fromRoute = typed;
 		tab = Tab.OVERVIEW;
 		index.setVisible(false);
 		details.removeAll();
@@ -414,12 +417,14 @@ final class ChroniclePanel extends StackPanel implements LocalBack, RouteAware {
 		detailBody.add(new Card(ui, "Supply records").addAll(note(ui, "Open a recorded trip for observed supplies.")));
 	}
 
-	@Override public boolean hasLocalBack() { return selected != null; }
+	/** A detail opened from the index is a local level; one opened by a typed entry is not, so Back returns to its sender. */
+	@Override public boolean hasLocalBack() { return selected != null && !fromRoute; }
 
 	@Override public void localBack() {
 		if (selected == null) return;
 		String key = selected.key;
 		selected = null;
+		fromRoute = false;
 		details.removeAll();
 		details.setVisible(false);
 		index.setVisible(true);
@@ -431,9 +436,14 @@ final class ChroniclePanel extends StackPanel implements LocalBack, RouteAware {
 	@Override public void setLocalBackListener(Runnable listener) { onBackChanged = listener; }
 
 	@Override public void routeShown(RouteRequest request, boolean returning) {
-		if (returning || request.param() != RouteRequest.Param.ENCOUNTER) return;
+		if (returning) return;
+		if (request == null || request.param() != RouteRequest.Param.ENCOUNTER) {
+			// A plain visit drops a sender's typed detail (as Pathfinder drops its access context); returning keeps it.
+			if (selected != null && fromRoute) localBack();
+			return;
+		}
 		Encounter e = catalog.encounter(request.paramId());
-		if (e != null) open(e);
+		if (e != null) open(e, true);
 	}
 
 	private static final class LedgerProgress extends JComponent implements HeightForWidth {
