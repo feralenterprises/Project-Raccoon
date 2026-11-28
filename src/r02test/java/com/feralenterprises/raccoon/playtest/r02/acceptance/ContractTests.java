@@ -62,6 +62,9 @@ public final class ContractTests {
 			try { run(); } catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
 		});
 		try { disposalFence(); } catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
+		// Lane C retained-bank evidence (Claude 2, b27e06c): permanent, synthetic quantities, no private inputs.
+		try { com.feralenterprises.raccoon.playtest.r02.panel.bank.RetainedBankRegression.run((n, ok) -> check("retained bank: " + n, ok)); }
+		catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
 		try { SharedGapTests.run(ContractTests::check); } catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
 		try { FrozenDataTests.literals(ContractTests::check); } catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
 		if (pkg != null) {
