@@ -50,6 +50,16 @@ Assert 'user and machine JAVA_HOME, PATH and GRADLE_USER_HOME are unchanged' $sa
 Assert "the existing Java 17 is untouched" (Test-Path -LiteralPath (Join-Path $java17 'bin\java.exe'))
 Assert 'a second start reuses the provisioned JDK without downloading' ((Install-PinnedJdk $root 'https://invalid.invalid/none.zip' '00') -eq $jdk)
 
+$quoted = $true
+try { $quoted = Test-PinnedJdk ('"' + $java17 + '"') } catch { $quoted = 'threw' }
+Assert 'a JAVA_HOME written with quotes is simply not the pinned JDK (no error)' ($quoted -eq $false)
+Assert 'a quoted JAVA_HOME of the pinned JDK is still recognised' (Test-PinnedJdk ('"' + $jdk + '"'))
+$keep = Join-Path $env:RUNNER_TEMP 'keep-me'; New-Item -ItemType Directory -Force -Path $keep | Out-Null; Set-Content -LiteralPath (Join-Path $keep 'k.txt') 'k'
+$own = Join-Path $root 'jdk\.extract-linktest'; New-Item -ItemType Directory -Force -Path $own | Out-Null
+cmd.exe /c mklink /J (Join-Path $own 'nested') $keep | Out-Null
+Remove-OwnFolder $own
+Assert 'cleanup removes a nested junction itself, never its target' (!(Test-Path -LiteralPath $own) -and (Test-Path -LiteralPath (Join-Path $keep 'k.txt')))
+
 $toolchain = $true
 try { Confirm-Toolchain $repo } catch { $toolchain = $false; Write-Host $_.Exception.Message }
 Assert 'the wrapper toolchain check passes (pinned JDK, Gradle 8.10 pin and run)' $toolchain

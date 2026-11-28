@@ -8,7 +8,7 @@ RuneLite.
 
 ## GitHub Desktop quick launch
 
-**Once:** On your regular Windows account (no separate account needed), install Temurin **11.0.33+10** and set `JAVA_HOME` to its JDK folder. Open the Project Raccoon checkout in GitHub Desktop and select `test/r02-windows-playtest`. Copy these two intact ZIPs from the cleared private owner package into `%USERPROFILE%\RaccoonPlaytest\inputs`, outside the repository:
+**Once:** On your regular Windows account (no separate account needed), you install nothing and change no settings: START-R02.cmd downloads its own Java (Temurin 11.0.33+10, checked by SHA-256) into `%USERPROFILE%\RaccoonPlaytest\jdk` the first time and uses it only for Raccoon. Your `JAVA_HOME`, `PATH` and other Java installs (for example Java 17 for Burrow) are never changed. Open the Project Raccoon checkout in GitHub Desktop and select `test/r02-windows-playtest`. Copy these two intact ZIPs from the cleared private owner package into `%USERPROFILE%\RaccoonPlaytest\inputs`, outside the repository:
 
 - `Project-Raccoon-R02-Review.zip`
 - `Project-Raccoon-R02-Lane-Inputs.zip`
@@ -22,7 +22,8 @@ Solis promotes explicitly cleared commits to the canonical playtest branch. The 
 1. **Your regular Windows account.** Your normal RuneLite, its settings and your saved sign-in can stay where they are:
    the playtest never uses, changes or removes them. Start it normally, not elevated (*Run as administrator* is
    refused). A dedicated `RaccoonTest...` account still works with its stricter FR-006 rules, but is not required.
-2. **Temurin 11.0.33** installed, with `JAVA_HOME` pointing at it.
+2. **Nothing else to install.** `START-R02.cmd` provisions Temurin 11.0.33+10 for itself. For the manual commands below,
+   set `JAVA_HOME` in that Command Prompt only (`set JAVA_HOME=%USERPROFILE%\RaccoonPlaytest\jdk\jdk-11.0.33+10`).
 3. **Git for Windows** (or GitHub Desktop), and this repository checked out at the commit Solis names. That commit must
    already be pushed to the `feralenterprises` GitHub repository and fetched.
 4. **The frozen R02 review package**, extracted outside the repository (for example `C:\Raccoon\Project-Raccoon-R02`).
@@ -134,7 +135,7 @@ to Solis. Only Solis decides when the `PLAYTEST-STOPPED.txt` file may be removed
 | `running elevated` | Close the window and double-click `START-R02.cmd` normally, not with *Run as administrator*. |
 | `is an administrator` / `has its own RuneLite folder` / `RuneLite is installed in this account` | Only on a `RaccoonTest...` account: use your regular account instead, or a fresh test account. |
 | `close RuneLite and the Jagex Launcher first` | Close them and run the check again. |
-| `JDK is ...` | Set `JAVA_HOME` to Temurin 11.0.33. |
+| `JDK is ...` | Use `START-R02.cmd` (it provisions the right Java), or set `JAVA_HOME` in that Command Prompt as above. |
 | `uncommitted or untracked changes` | Run `git status`. Remove the files (ask before committing anything). |
 | `not on a fetched feralenterprises GitHub remote` | Run `git fetch`. If it still fails, the commit has not been pushed yet. |
 | `host JAR was built from ...` / `preferences-isolation JAR` | Run the `prepare` step again. |

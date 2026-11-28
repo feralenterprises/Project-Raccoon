@@ -83,6 +83,7 @@ function Get-PlaytestRoot {
 
 function Test-PinnedJdk([string]$JdkHome) {
     if (!$JdkHome) { return $false }
+    try { $JdkHome = $JdkHome.Trim().Trim('"'); [void][IO.Path]::GetFullPath($JdkHome) } catch { return $false }
     foreach ($exe in @('bin\java.exe','bin\javac.exe','release')) {
         if (!(Test-Path -LiteralPath (Join-Path $JdkHome $exe) -PathType Leaf)) { return $false }
     }
@@ -96,7 +97,8 @@ function Remove-OwnFolder([string]$Path) {
     if (!(Test-Path -LiteralPath $Path)) { return }
     $item = Get-Item -LiteralPath $Path -Force
     if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Refusing to remove $Path (it is a link or junction). Send this message to Solis." }
-    Remove-Item -LiteralPath $Path -Recurse -Force
+    # Directory.Delete removes nested links and junctions themselves, never what they point to.
+    [IO.Directory]::Delete($Path, $true)
 }
 
 function Install-PinnedJdk([string]$Root, [string]$Url = $JdkZipUrl, [string]$Hash = $JdkZipHash) {
@@ -120,10 +122,16 @@ function Install-PinnedJdk([string]$Root, [string]$Url = $JdkZipUrl, [string]$Ha
         [IO.Compression.ZipFile]::ExtractToDirectory($zip, $extract)
         $unpacked = Join-Path $extract $JdkName
         if (!(Test-PinnedJdk $unpacked)) { throw 'The downloaded Java runtime is not Temurin 11.0.33+10 for Windows x64. Send this message to Solis.' }
-        [IO.Directory]::Move($unpacked, $managed)
+        # Antivirus may briefly hold the new java.exe; retry the move before giving up.
+        for ($try = 1; ; $try++) {
+            try { [IO.Directory]::Move($unpacked, $managed); break }
+            catch { if ($try -ge 10) { throw "Could not finish installing the Raccoon Java runtime ($($_.Exception.Message)). Retry; if it repeats, send this message to Solis." }; Start-Sleep -Seconds 3 }
+        }
     } finally {
-        if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
-        if (Test-Path -LiteralPath $extract) { Remove-OwnFolder $extract }
+        try {
+            if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+            if (Test-Path -LiteralPath $extract) { Remove-OwnFolder $extract }
+        } catch { Write-Host "Note: could not remove a temporary download file under $jdkRoot ($($_.Exception.Message))." }
     }
     if (!(Test-PinnedJdk $managed)) { throw 'The Raccoon Java runtime could not be installed. Send this message to Solis.' }
     $managed
@@ -158,6 +166,7 @@ function Confirm-Toolchain([string]$Repo) {
     if ($LASTEXITCODE -ne 0 -or $version -notmatch '\bTemurin-11\.0\.33\+10\b') {
         throw 'The Raccoon Java runtime is not Temurin 11.0.33+10. Delete %USERPROFILE%\RaccoonPlaytest\jdk and retry.'
     }
+    Write-Host 'Checking Gradle 8.10 (the first time this downloads about 150 MB for Raccoon; please wait).'
     $version = & (Join-Path $Repo 'gradlew.bat') --no-daemon --version 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0 -or $version -notmatch '(?m)^Gradle 8\.10\s*$') {
         Write-Host $version
