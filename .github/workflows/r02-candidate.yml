@@ -6,7 +6,7 @@ name: r02-candidate
 
 on:
   push:
-    branches: ['dev/r02-final-assembly']
+    branches: ['dev/r02-final-assembly', 'fix/r02-normal-account-launch']
   workflow_dispatch:
 
 permissions:
@@ -17,6 +17,17 @@ env:
   RUNELITE_COMMIT: 8397ec7131ec029bef30ab8ae835b3eb3ebffd9a
 
 jobs:
+  quick-launch-windows:
+    name: quick launch preparation on Windows with Java 17 (owner-shaped)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: START-R02.cmd preparation under Windows PowerShell 5.1, JAVA_HOME = Java 17, no Temurin 11 set up
+        shell: powershell
+        run: .\.github\ci\quick-launch-windows.ps1
+
   pinned-gate:
     name: pinned gate (${{ matrix.os }})
     strategy:

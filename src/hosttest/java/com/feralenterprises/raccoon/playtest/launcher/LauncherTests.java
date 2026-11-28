@@ -1022,6 +1022,16 @@ public final class LauncherTests {
 			s.command = c -> null;
 			T.that("A10 account facts: whoami unavailable means unknown", Arrays.equals(new String[] {"owner", null, null}, PlaytestLauncher.accountFacts(s)));
 		}
+		{
+			PlaytestLauncher.Settings g = ordinary("owner", "yes", "no");
+			g.phase = ph -> { if ("launch:checked".equals(ph)) try { Files.write(rl.resolve("logs.txt"), new byte[] {7}); } catch (IOException e) { throw new RuntimeException(e); } };
+			PlaytestLauncher gl = new PlaytestLauncher(g);
+			int grc = gl.launch();
+			T.that("A13 ordinary launch: a RuneLite folder already changing (an open RuneLite or Burrow client) refuses before start, without a latch",
+				grc == 1 && out().contains("RESULT: REFUSED (your RuneLite folders changed while the playtest was being checked") && gl.child() == null && !Files.exists(latch));
+			Files.deleteIfExists(rl.resolve("logs.txt"));
+			T.that("A13 ordinary launch: READY again once it is closed", new PlaytestLauncher(ordinary("owner", "yes", "no")).launch() == 0 && !Files.exists(latch));
+		}
 		deleteTree(rl);
 		wipeIfOurs();
 		T.that("A11 after the ordinary-account cases the dedicated launch is READY again", new PlaytestLauncher(settings()).check(true));
@@ -1032,6 +1042,18 @@ public final class LauncherTests {
 				!ps.contains("[Environment]::UserName") && !ps.contains("RaccoonTest") && !ps.contains("$env:USERNAME"));
 			T.that("A12 quick launch: START-R02.cmd at the root still runs the checked wrapper", cmd.contains("playtest\\Start-OwnerPlaytest.ps1"));
 			T.that("A12 quick launch: the wrapper still runs the launcher's preflight before launch", ps.contains("RESULT: READY") && ps.indexOf(" check --package ") < ps.indexOf(" launch --package "));
+			String pins = new String(Files.readAllBytes(Paths.get("ui-pins.properties")), StandardCharsets.UTF_8);
+			T.that("A14 quick launch: the wrapper provisions exactly the pinned JDK by SHA-256 (no manual Java install)",
+				pins.contains("jdk.version=11.0.33") && ps.contains("$JdkName = 'jdk-11.0.33+10'") && ps.contains("$JdkImplementor = 'Temurin-11.0.33+10'")
+				&& ps.contains("$JdkZipHash = 'cff2e75657c96a718974732b4a7b2c81a245a0b2ea44e6d8ea08cd0248d8fa9d'")
+				&& ps.contains("https://github.com/adoptium/temurin11-binaries/releases/download/jdk-11.0.33%2B10/OpenJDK11U-jdk_x64_windows_hotspot_11.0.33_10.zip")
+				&& ps.indexOf("Get-FileHash -Algorithm SHA256 -LiteralPath $zip") < ps.indexOf("ExtractToDirectory"));
+			T.that("A14 quick launch: nothing global is changed (no setx, no user or machine environment writes, no registry)",
+				!ps.toLowerCase(java.util.Locale.ROOT).contains("setx") && !ps.contains("SetEnvironmentVariable") && !ps.contains("HKCU:") && !ps.contains("HKLM:")
+				&& !ps.contains("Set-ItemProperty"));
+			T.that("A14 quick launch: a non-pinned JAVA_HOME (e.g. Java 17) is not an error; the pinned JDK is used for this process only",
+				!ps.contains("Set JAVA_HOME") && ps.contains("$env:JAVA_HOME = $jdk") && ps.indexOf("Use-PinnedJdk $root") < ps.indexOf("Confirm-Toolchain $repo"));
+			T.that("A14 quick launch: Raccoon uses its own Gradle home (other projects' gradle.properties do not apply)", ps.contains("$env:GRADLE_USER_HOME = Join-Path $Root 'gradle-home'"));
 		} else {
 			System.out.println("  SKIP A12 quick-launch text checks: not run from the checkout root");
 		}
