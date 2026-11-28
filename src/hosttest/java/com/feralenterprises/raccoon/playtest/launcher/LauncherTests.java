@@ -55,6 +55,7 @@ public final class LauncherTests {
 		refusals();
 		isolationLatch();
 		wipe();
+		safetyRegressions();
 		if (frozen == null) System.out.println("LauncherTests: frozen package not given; the accepted package's own verification SKIPPED");
 		else frozenPackage(frozen);
 		System.exit(T.finish());
@@ -103,6 +104,8 @@ public final class LauncherTests {
 		+ "    b.append(\"cwd=\").append(System.getProperty(\"user.dir\")).append('\\n');\n"
 		+ "    b.append(\"tmpdir=\").append(System.getProperty(\"java.io.tmpdir\")).append('\\n');\n"
 		+ "    b.append(\"TEMP=\").append(System.getenv(\"TEMP\")).append('\\n');\n"
+		+ "    for (String v : new String[] {\"APPDATA\", \"LOCALAPPDATA\", \"USERPROFILE\", \"HOME\", \"XDG_CONFIG_HOME\", \"XDG_DATA_HOME\", \"XDG_CACHE_HOME\", \"XDG_STATE_HOME\"})\n"
+		+ "      b.append(\"envroot.\").append(v).append('=').append(System.getenv(v)).append('\\n');\n"
 		+ "    java.util.prefs.Preferences pr = java.util.prefs.Preferences.userRoot().node(\"raccoon-test\").node(\"a b/c\".replace('/', '_'));\n"
 		+ "    pr.put(\"k\", \"v\"); pr.flush();\n"
 		+ "    b.append(\"prefsFactory=\").append(System.getProperty(\"java.util.prefs.PreferencesFactory\")).append('\\n');\n"
@@ -115,6 +118,7 @@ public final class LauncherTests {
 		+ "      Thread.sleep(120000);\n"
 		+ "    }\n"
 		+ "    if (\"touchhome\".equals(mode)) { Path r = Paths.get(System.getenv(\"RACCOON_FAKE_REALHOME\")); Files.createDirectories(r.resolve(\"jagexcache\")); Files.write(r.resolve(\"jagexcache/x\"), new byte[] {1}); }\n"
+		+ "    if (\"touchnested\".equals(mode)) { Path r = Paths.get(System.getenv(\"RACCOON_FAKE_REALHOME\"), \"AppData\", \"Local\", \"Vendor\", \"deep\"); Files.createDirectories(r); Files.write(r.resolve(\"x.dat\"), new byte[] {1}); }\n"
 		+ "    if (\"webview\".equals(mode)) Files.createDirectories(Paths.get(System.getProperty(\"java.io.tmpdir\"), \"runelite_jagexauth123.WebView2\"));\n"
 		+ "    if (\"signin\".equals(mode)) { Files.createDirectories(home.resolve(\".runelite\")); Files.write(home.resolve(\".runelite/jagex-accounts.dat\"), new byte[] {1}); }\n"
 		+ "    System.exit(\"exit7\".equals(mode) ? 7 : 0);\n"
@@ -142,6 +146,11 @@ public final class LauncherTests {
 			+ "public final class LockHolder { public static void main(String[] a) throws Exception {\n"
 			+ "  FileChannel c = FileChannel.open(Paths.get(a[0]), StandardOpenOption.CREATE, StandardOpenOption.WRITE); FileLock l = c.lock();\n"
 			+ "  Files.write(Paths.get(a[1]), new byte[] {1}); Thread.sleep(120000); } }\n");
+		src.put("test.LockProbe", "package test;\nimport java.nio.channels.*; import java.nio.file.*;\n"
+			+ "public final class LockProbe { public static void main(String[] a) throws Exception {\n"
+			+ "  String r; try (FileChannel c = FileChannel.open(Paths.get(a[0]), StandardOpenOption.WRITE)) { FileLock l = c.tryLock(); r = l == null ? \"held\" : \"free\"; if (l != null) l.release(); }\n"
+			+ "  catch (java.io.IOException e) { r = \"absent\"; }\n"
+			+ "  Files.write(Paths.get(a[1]), r.getBytes()); } }\n");
 		Compile.into(classes, null, src);
 		Map<String, byte[]> host = new LinkedHashMap<>();
 		try (Stream<Path> w = Files.walk(classes)) {
@@ -422,7 +431,7 @@ public final class LauncherTests {
 
 	private static void refused(String name, String expect, Mutation m, Runnable undo) throws Exception {
 		PlaytestLauncher.Settings s = settings();
-		m.apply(s);
+		if (m != null) m.apply(s);
 		Files.deleteIfExists(s.profile.resolve("child-report.txt"));
 		PlaytestLauncher l = new PlaytestLauncher(s);
 		int rc = l.launch();
@@ -587,8 +596,272 @@ public final class LauncherTests {
 		T.that("wipe: nothing to wipe is fine", new PlaytestLauncher(settings()).wipe());
 	}
 
+	// ------------------------------------------------------------------ Solis launcher review (2026-11-27): permanent regressions
+
+	/** Another process's view of the instance lock: "held", "free" or "absent". */
+	private static String probeLock(Path lockFile) throws Exception {
+		Path out = work.resolve("probe.txt");
+		Files.deleteIfExists(out);
+		new ProcessBuilder(Paths.get(System.getProperty("java.home"), "bin", "java").toString(), "-cp", hostJar.toString(), "test.LockProbe",
+			lockFile.toString(), out.toString()).inheritIO().start().waitFor();
+		return Files.exists(out) ? new String(Files.readAllBytes(out), StandardCharsets.UTF_8) : "probe failed";
+	}
+
+	/** A directory link: a symbolic link, or on Windows without that privilege a junction. False when neither can be made. */
+	private static boolean dirLink(Path link, Path target) throws Exception {
+		try {
+			Files.createSymbolicLink(link, target);
+			return true;
+		} catch (UnsupportedOperationException | IOException e) {
+			if (!System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).startsWith("windows")) return false;
+			return new ProcessBuilder("cmd.exe", "/c", "mklink", "/J", link.toString(), target.toString()).inheritIO().start().waitFor() == 0;
+		}
+	}
+
+	private static void wipeIfOurs() throws Exception {
+		PlaytestLauncher.Settings s = settings();
+		if (Files.exists(s.profile)) new PlaytestLauncher(s).wipe();
+	}
+
+	/** Windows-shaped settings on any OS: fake registry and Credential Manager, AppData folders under the test home. */
+	private static PlaytestLauncher.Settings windowsSettings(java.util.function.Function<List<String>, String> command) throws IOException {
+		PlaytestLauncher.Settings s = settings();
+		s.windows = true;
+		Path roaming = Files.createDirectories(home.resolve("AppData/Roaming")), local = Files.createDirectories(home.resolve("AppData/Local"));
+		s.environment.put("APPDATA", roaming.toString());
+		s.environment.put("LOCALAPPDATA", local.toString());
+		s.environment.put("USERPROFILE", home.toString());
+		s.command = command;
+		return s;
+	}
+
+	private static String fakeWindows(List<String> c) {
+		if (c.get(0).startsWith("reg")) return "HKEY_CURRENT_USER\\Software\\JavaSoft\\Prefs\n";
+		if (c.get(0).startsWith("cmdkey")) return "Currently stored credentials:\n* NONE *\n";
+		return null;
+	}
+
+	private static void safetyRegressions() throws Exception {
+		wipeIfOurs();
+		// L1: the client and its native helpers write per-user data under APPDATA, LOCALAPPDATA, USERPROFILE, HOME and the
+		// XDG folders, not only TEMP. Every one of them must point into the profile.
+		for (boolean win : new boolean[] {false, true}) {
+			PlaytestLauncher.Settings s = settings();
+			s.windows = win;
+			s.environment.put("APPDATA", home.resolve("AppData/Roaming").toString());
+			s.environment.put("LOCALAPPDATA", home.resolve("AppData/Local").toString());
+			s.environment.put("USERPROFILE", home.toString());
+			s.environment.put("HOME", home.toString());
+			s.environment.put("XDG_CONFIG_HOME", home.resolve(".config").toString());
+			Map<String, String> env = new PlaytestLauncher(s).childEnvironment(new ArrayList<>());
+			boolean all = true;
+			for (String v : new String[] {"APPDATA", "LOCALAPPDATA", "USERPROFILE", "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"})
+				all &= env.get(v) != null && Paths.get(env.get(v)).startsWith(s.profile);
+			T.that("L1 env (" + (win ? "Windows" : "other") + "): APPDATA, LOCALAPPDATA, USERPROFILE, HOME and XDG roots point into the profile", all);
+			if (win) {
+				String drive = env.get("HOMEDRIVE"), path = env.get("HOMEPATH");
+				T.that("L1 env (Windows): HOMEDRIVE + HOMEPATH is the profile", drive != null && path != null && s.profile.toString().equals(drive + path));
+			}
+		}
+		{
+			PlaytestLauncher.Settings s = settings();
+			s.environment.put("HOME", home.toString());
+			s.environment.put("APPDATA", home.resolve("AppData/Roaming").toString());
+			int rc = new PlaytestLauncher(s).launch();
+			Map<String, String> r = rc == 0 ? report(s.profile) : new LinkedHashMap<>();
+			boolean inside = rc == 0;
+			for (String v : new String[] {"APPDATA", "LOCALAPPDATA", "USERPROFILE", "HOME", "XDG_CONFIG_HOME"}) {
+				String x = r.get("envroot." + v);
+				inside &= x != null && !"null".equals(x) && Paths.get(x).startsWith(s.profile) && Files.isDirectory(Paths.get(x));
+			}
+			T.that("L1 child: the client received existing per-user folders inside the profile", inside);
+		}
+
+		// L2: protected-location snapshots must see nested writes, not only top-level names.
+		{
+			PlaytestLauncher.Settings s = windowsSettings(LauncherTests::fakeWindows);
+			Path deep = Files.createDirectories(home.resolve("AppData/Local/Vendor/deep"));
+			Path docs = Files.createDirectories(home.resolve("Documents/notes"));
+			PlaytestLauncher l = new PlaytestLauncher(s);
+			PlaytestLauncher.Snapshot before = l.snapshot();
+			T.that("L2 snapshot: complete for an ordinary Windows-shaped account", before.incomplete.isEmpty());
+			Files.write(deep.resolve("new.dat"), new byte[] {1});
+			T.that("L2 snapshot: a new file deep inside LOCALAPPDATA is a change", String.join(",", before.changes(l.snapshot())).contains("Vendor/deep/new.dat"));
+			PlaytestLauncher.Snapshot mid = l.snapshot();
+			Files.write(deep.resolve("new.dat"), new byte[] {1, 2, 3});
+			T.that("L2 snapshot: a changed nested file is a change", !mid.changes(l.snapshot()).isEmpty());
+			PlaytestLauncher.Snapshot mid2 = l.snapshot();
+			Files.write(docs.resolve("n.txt"), new byte[] {1});
+			T.that("L2 snapshot: a nested write elsewhere in the home is a change", String.join(",", mid2.changes(l.snapshot())).contains("notes/n.txt"));
+			Path outside = Files.createDirectories(work.resolve("snapshot-link-target"));
+			Path link = home.resolve("AppData/Local/linked");
+			if (dirLink(link, outside)) {
+				PlaytestLauncher.Snapshot withLink = l.snapshot();
+				T.that("L2 snapshot: a link is recorded, never followed", withLink.incomplete.isEmpty() && withLink.entries.keySet().stream().noneMatch(k -> k.contains("linked/")));
+				Files.delete(link);
+				T.that("L2 snapshot: removing a link is a change", !withLink.changes(l.snapshot()).isEmpty());
+			} else {
+				System.out.println("  SKIP L2 link checks: no symbolic-link or junction privilege");
+			}
+			deleteTree(home.resolve("AppData"));
+			deleteTree(home.resolve("Documents/notes"));
+		}
+		{
+			Files.createDirectories(home.resolve("AppData/Local"));
+			PlaytestLauncher.Settings t = settings();
+			t.environment.put("RACCOON_FAKE_MODE", "touchnested");
+			t.environment.put("RACCOON_FAKE_REALHOME", home.toString());
+			new PlaytestLauncher(t).launch();
+			Path latch = home.resolve(".raccoon-r02-playtest/" + PlaytestLauncher.LATCH);
+			T.that("L2 launch: a nested write outside the profile latches the launcher", Files.exists(latch)
+				&& new String(Files.readAllBytes(latch), StandardCharsets.UTF_8).contains("Vendor/deep/x.dat"));
+			Files.deleteIfExists(latch);
+			deleteTree(home.resolve("AppData"));
+		}
+
+		// L3: profile paths are judged by where they really are, ancestors and nested entries included, before a launch.
+		{
+			Path alias = work.resolve("home-alias");
+			if (dirLink(alias, home)) {
+				refused("L3 profile reached through a link into the real .runelite", "is not an isolated folder", s -> s.profile = alias.resolve(".runelite/p"), null);
+				refused("L3 profile reached through a link onto the real home", "is not an isolated folder", s -> s.profile = alias, null);
+				Files.delete(alias);
+				T.that("L3 nothing was created in the real .runelite through the link", !Files.exists(home.resolve(".runelite"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+				deleteTree(home.resolve(".runelite"));
+				Path aliasLatch = home.resolve(".raccoon-r02-playtest/" + PlaytestLauncher.LATCH);
+				T.that("L3 the refused alias launches started nothing that latched", !Files.exists(aliasLatch));
+				Files.deleteIfExists(aliasLatch);
+			} else System.out.println("  SKIP L3 alias checks: no symbolic-link or junction privilege");
+			wipeIfOurs();
+			Path parent = home.resolve(".raccoon-r02-playtest");
+			Path moved = work.resolve("moved-launcher-folder");
+			deleteTree(moved);
+			Files.createDirectories(parent);
+			Files.move(parent, moved);
+			if (dirLink(parent, moved)) {
+				refused("L3 profile whose ancestor is a link or junction", "link or junction", null, null);
+				Files.delete(parent);
+			} else System.out.println("  SKIP L3 ancestor check: no symbolic-link or junction privilege");
+			Files.move(moved, parent);
+			PlaytestLauncher.Settings s0 = settings();
+			Files.createDirectories(s0.profile.resolve("tmp"));
+			if (!PlaytestLauncher.isOurs(s0.profile)) Files.write(s0.profile.resolve(PlaytestLauncher.MARKER), PlaytestLauncher.MARKER_CONTENT.getBytes(StandardCharsets.UTF_8));
+			Path keep = Files.createDirectories(work.resolve("nested-link-target"));
+			if (dirLink(s0.profile.resolve("tmp/escape"), keep)) {
+				refused("L3 existing profile holding a nested link or junction", "links, junctions", null, null);
+				Files.delete(s0.profile.resolve("tmp/escape"));
+			} else System.out.println("  SKIP L3 nested check: no symbolic-link or junction privilege");
+		}
+
+		// L4: cleanup and locking. Validation comes before the lock file is touched, the lock is never followed out of its
+		// folder, and launch and wipe hold it until they are completely done.
+		{
+			PlaytestLauncher.Settings s = settings();
+			Files.createDirectories(s.profile);
+			if (!PlaytestLauncher.isOurs(s.profile)) Files.write(s.profile.resolve(PlaytestLauncher.MARKER), PlaytestLauncher.MARKER_CONTENT.getBytes(StandardCharsets.UTF_8));
+			Path lockFile = new PlaytestLauncher(s).lockPath();
+			Files.deleteIfExists(lockFile);
+			Path target = work.resolve("outside-lock-target/created.lock");
+			deleteTree(target.getParent());
+			Files.createDirectories(target.getParent());
+			boolean made;
+			try { Files.createSymbolicLink(lockFile, target); made = true; } catch (UnsupportedOperationException | IOException e) { made = false; }
+			if (made) {
+				boolean wiped = new PlaytestLauncher(s).wipe();
+				T.that("L4 wipe: a lock file that is a link is refused and never followed", !wiped && !Files.exists(target));
+				PlaytestLauncher l = new PlaytestLauncher(settings());
+				T.that("L4 launch: a lock file that is a link is refused and never followed", l.launch() == 1 && !Files.exists(target) && l.child() == null);
+				Files.delete(lockFile);
+			} else System.out.println("  SKIP L4 lock-link checks: no symbolic-link privilege");
+		}
+		{
+			PlaytestLauncher.Settings s = settings();
+			Files.createDirectories(s.profile);
+			if (!PlaytestLauncher.isOurs(s.profile)) Files.write(s.profile.resolve(PlaytestLauncher.MARKER), PlaytestLauncher.MARKER_CONTENT.getBytes(StandardCharsets.UTF_8));
+			PlaytestLauncher w = new PlaytestLauncher(s);
+			String[] seen = {"not reached"};
+			s.phase = p -> { if (p.equals("wipe:deleting")) try { seen[0] = probeLock(w.lockPath()); } catch (Exception e) { seen[0] = e.toString(); } };
+			boolean wiped = w.wipe();
+			T.that("L4 wipe: the instance lock is held while the profile is deleted", wiped && "held".equals(seen[0]) && !Files.exists(s.profile));
+			if (!"held".equals(seen[0])) System.out.println("  lock during wipe: " + seen[0]);
+		}
+		{
+			PlaytestLauncher.Settings s = settings();
+			PlaytestLauncher l = new PlaytestLauncher(s);
+			String[] seen = {"not reached"};
+			s.phase = p -> { if (p.equals("launch:postflight")) try { seen[0] = probeLock(l.lockPath()); } catch (Exception e) { seen[0] = e.toString(); } };
+			int rc = l.launch();
+			T.that("L4 launch: the instance lock is held through the post-run check", rc == 0 && "held".equals(seen[0]));
+			if (!"held".equals(seen[0])) System.out.println("  lock during postflight: " + seen[0] + (rc == 0 ? "" : "\n" + out()));
+			T.that("L4 launch: the lock is released afterwards", "free".equals(probeLock(l.lockPath())));
+		}
+
+		// L5: incomplete isolation checks fail closed, in check as in launch, and an exception is never a pass.
+		{
+			Path local = Files.createDirectories(work.resolve("check-localappdata"));
+			PlaytestLauncher.Settings s = settings();
+			s.windows = true;
+			s.environment.put("LOCALAPPDATA", local.toString());
+			s.environment.put("APPDATA", local.toString());
+			s.command = c -> null;
+			T.that("L5 check: unreadable protected locations refuse the check, not only the launch",
+				!new PlaytestLauncher(s).check(true) && out().contains("protected locations could not be read"));
+		}
+		{
+			PlaytestLauncher.Settings s = windowsSettings(c -> { throw new IllegalStateException("registry query crashed"); });
+			PlaytestLauncher l = new PlaytestLauncher(s);
+			int rc;
+			try { rc = l.launch(); } catch (Exception e) { rc = -99; }
+			T.that("L5 launch: a snapshot that throws refuses the launch (no exception, nothing started)", rc == 1 && l.child() == null && out().contains("could not be read"));
+			T.that("L5 launch: the lock is not left held", !"held".equals(probeLock(l.lockPath())));
+			deleteTree(home.resolve("AppData"));
+		}
+		{
+			int[] calls = {0};
+			PlaytestLauncher.Settings s = windowsSettings(c -> {
+				// preflight reads (check, then launch) succeed; the post-run read crashes
+				if (++calls[0] > 4) throw new IllegalStateException("registry query crashed after the run");
+				return fakeWindows(c);
+			});
+			PlaytestLauncher l = new PlaytestLauncher(s);
+			Path latch = home.resolve(".raccoon-r02-playtest/" + PlaytestLauncher.LATCH);
+			Files.deleteIfExists(latch);
+			int rc;
+			try { rc = l.launch(); } catch (Exception e) { rc = -99; }
+			T.that("L5 launch: a post-run snapshot that throws latches the launcher (never a pass)", rc != -99 && Files.exists(latch));
+			Files.deleteIfExists(latch);
+			deleteTree(home.resolve("AppData"));
+		}
+
+		// L6: the package is verified file by file against its SHA256SUMS.txt, not only by that file's own digest.
+		{
+			byte[] a = Files.readAllBytes(pkg.resolve("assets/a.png"));
+			refused("L6 a payload changed while SHA256SUMS.txt is untouched", "does not match SHA256SUMS.txt",
+				s -> Files.write(pkg.resolve("assets/a.png"), "tampered".getBytes(StandardCharsets.UTF_8)), io(x -> Files.write(pkg.resolve("assets/a.png"), a)));
+			refused("L6 a listed payload missing", "missing", s -> Files.delete(pkg.resolve("assets/a.png")), io(x -> Files.write(pkg.resolve("assets/a.png"), a)));
+			Path extra = pkg.resolve("assets/unlisted.bin");
+			refused("L6 a file not listed in SHA256SUMS.txt", "not listed in SHA256SUMS.txt", s -> Files.write(extra, new byte[] {1}), io(x -> Files.delete(extra)));
+			byte[] sums = Files.readAllBytes(pkg.resolve("SHA256SUMS.txt"));
+			Path escape = work.resolve("outside/escape.txt");
+			Files.write(escape, new byte[] {7});
+			refused("L6 a SHA256SUMS.txt entry outside the package", "outside the package", s -> {
+				String add = PlaytestLauncher.sha256(escape) + "  ../escape.txt\n";
+				Files.write(pkg.resolve("SHA256SUMS.txt"), (new String(sums, StandardCharsets.UTF_8) + add).getBytes(StandardCharsets.UTF_8));
+				s.packageSumsSha256 = PlaytestLauncher.sha256(pkg.resolve("SHA256SUMS.txt"));
+			}, io(x -> Files.write(pkg.resolve("SHA256SUMS.txt"), sums)));
+			Path ext = Files.createDirectories(work.resolve("package-link-target"));
+			Path pl = pkg.resolve("assets/linked");
+			if (dirLink(pl, ext)) {
+				refused("L6 a link inside the package", "link", null, io(x -> Files.delete(pl)));
+			} else System.out.println("  SKIP L6 link check: no symbolic-link or junction privilege");
+		}
+		T.that("L*: after the regressions a launch is READY again", new PlaytestLauncher(settings()).check(true));
+	}
+
+
 	private static void deleteTree(Path p) throws IOException {
-		if (!Files.exists(p)) return;
+		if (!Files.exists(p, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return;
+		if (Files.isSymbolicLink(p)) { Files.delete(p); return; }
 		try (Stream<Path> s = Files.walk(p)) {
 			for (Path x : (Iterable<Path>) s.sorted((a, b) -> b.compareTo(a))::iterator) Files.delete(x);
 		}
