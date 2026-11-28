@@ -300,6 +300,19 @@ public final class CombatLaneTests {
 		comp.navigator().navigate("outfit");
 		navigate(RouteId.CHRONICLE, "vorkath");
 		check("typed ENCOUNTER opens the Chronicle detail", find(page(), "chronicle-tabs") != null && !local().hasLocalBack());
+		RouteRequest typedChronicle = comp.navigator().currentRequest();
+		int senderHistoryDepth = comp.navigator().historyDepth();
+		check("reselecting the current destination preserves the typed detail and history",
+			!comp.navigator().navigate("chronicle") && typedChronicle.equals(comp.navigator().currentRequest())
+				&& comp.navigator().historyDepth() == senderHistoryDepth && find(page(), "chronicle-tabs") != null);
+		tabs(2);
+		click("chronicle-outfit");
+		check("the Chronicle action opens the typed Outfitter destination",
+			RouteRequest.of("outfit", RouteRequest.Param.ENCOUNTER, "vorkath").equals(comp.navigator().currentRequest()));
+		comp.shell().header().back().doClick();
+		check("Back from Outfitter restores the typed Chronicle request and its selected tab",
+			typedChronicle.equals(comp.navigator().currentRequest())
+				&& get("chronicle-tabs", SegmentedSelector.class).selected() == 2 && !local().hasLocalBack());
 		comp.shell().header().back().doClick();
 		check("one Back after a typed Chronicle entry returns to the sender", "outfit".equals(comp.navigator().current()));
 		comp.navigator().navigate("chronicle");
@@ -307,6 +320,7 @@ public final class CombatLaneTests {
 		comp.shell().header().back().doClick();
 		check("one Back after a typed Outfitter entry returns to the sender (same rule)", "chronicle".equals(comp.navigator().current()));
 		navigate(RouteId.CHRONICLE, "vorkath");
+		comp.navigator().navigate("home");
 		comp.navigator().navigate("chronicle");
 		check("a plain Chronicle visit drops the sender's typed detail", find(page(), "chronicle-tabs") == null && count(page(), "chronicle-boss-") > 0);
 		get("chronicle-search", JTextField.class).setText("vorkath");
