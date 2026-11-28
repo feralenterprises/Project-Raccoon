@@ -373,7 +373,7 @@ public final class HomeLaneTests {
 	private void screenshots() {
 		shot("01-home-demo-a.png", TestFixtures.demoA(generation, ++revision));
 		FixtureSnapshot frozenLike = FixtureSnapshot.builder(AccountScope.of("A", 1)).generation(generation).revision(++revision)
-			.container(new ContainerObservation(Container.BANK, ContainerState.CURRENT, T0, "Frozen-equivalent", Collections.singletonMap(995, 2_350_840L)))
+			.container(new ContainerObservation(Container.BANK, ContainerState.CURRENT, T0, "Frozen-equivalent", Collections.singletonMap(995, 1_000_000L)))
 			.officialKc("scurrius", Evidence.count(12, T0, "Frozen-equivalent"))
 			.capture("quests", Evidence.verified(CaptureState.PARTIAL, T0, "Frozen-equivalent"))
 			.archive(Evidence.verified(true, T0, "Frozen-equivalent"), Arrays.asList(

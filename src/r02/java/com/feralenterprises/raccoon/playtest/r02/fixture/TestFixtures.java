@@ -50,13 +50,15 @@ public final class TestFixtures {
 		return m;
 	}
 
+	// Demo A bank quantities are synthetic round numbers (sanitized 2026-11-27): the earlier rows copied the frozen
+	// review's bank catalogue, whose provenance is unconfirmed. Item identities and evidence rules are unchanged.
 	/** Demo A: current bank (no raw tuna), DS II complete, 48 Vorkath / 12 Scurrius KC, record a1, verified levels. */
 	public static FixtureSnapshot demoA(int generation, long revision) {
 		String src = "Demo A fixture";
 		ArchiveRecord a1 = new ArchiveRecord("a1", "vorkath", "vorkath", T0.minus(Duration.ofHours(3)), Duration.ofMinutes(31), 12,
 			"kills", Evidence.verified(38_400L, T0, src), items(995, 280_000));
 		return FixtureSnapshot.builder(AccountScope.of("A", 1)).generation(generation).revision(revision)
-			.container(new ContainerObservation(Container.BANK, ContainerState.CURRENT, T0, src, items(995, 2_350_840, 1511, 1290, 21512, 16, 10828, 1, 29589, 1)))
+			.container(new ContainerObservation(Container.BANK, ContainerState.CURRENT, T0, src, items(995, 1_000_000, 1511, 1_000, 21512, 10, 10828, 1, 29589, 1)))
 			.container(new ContainerObservation(Container.INVENTORY, ContainerState.INCOMPLETE, T0, src, items(8013, 1)))
 			.quest("Dragon Slayer II", Evidence.verified(QuestState.COMPLETE, T0, src))
 			.quest("Song of the Elves", Evidence.verified(QuestState.IN_PROGRESS, T0, src))

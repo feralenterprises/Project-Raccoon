@@ -94,7 +94,7 @@ public final class BankLaneTests {
 			&& a.statusLabel.equals("Verified · bank open") && a.countText.equals("5") && a.countLabel.equals("Verified item types")
 			&& a.quantityLabel.equals("Quantity"));
 		check("exact identities and quantities from the shared observation", a.items.stream().map(r -> r.id + "=" + r.quantity)
-			.collect(Collectors.joining(",")).equals("995=2350840,1511=1290,10828=1,21512=16,29589=1"));
+			.collect(Collectors.joining(",")).equals("995=1000000,1511=1000,10828=1,21512=10,29589=1"));
 		check("names come from the frozen catalog for the same ID", a.items.get(0).name.equals("Coins") && a.items.get(1).name.equals("Logs"));
 		BankModel unknownId = BankModel.of(bank("A", 1, ContainerState.CURRENT, Collections.singletonMap(99_999, 3L)), reg, in);
 		check("an unknown ID keeps its exact identity (never substituted)", unknownId.items.get(0).name.equals("Item 99999")
@@ -178,7 +178,8 @@ public final class BankLaneTests {
 				check("composition mounts Lane C Bank Memory", p != null && comp.navigator().current().equals("bank"));
 				check("status, count and estimate render", text("bank-status").equals("Verified · bank open") && text("bank-count").equals("37")
 					&& text("bank-value").equals("6.96m gp") && text("bank-result-count").equals("37 item types"));
-				check("tiles name exact items with verified quantity", accessible("bank-item-995").equals("Coins, verified quantity 2,350,840"));
+				check("tiles name exact items with verified quantity", accessible("bank-item-995").equals("Coins, verified quantity "
+					+ java.text.NumberFormat.getIntegerInstance(java.util.Locale.US).format(frozenBank(in).get(995))));
 				check("authentic item sprites resolve for every frozen item (shared assets, then verified lane sprites by exact ID)",
 					frozenBank(in).keySet().stream().noneMatch(id -> accessible("bank-item-" + id).contains("sprite unavailable")));
 				check("lane sprite fallback is exact-ID only", in.sprite(23971) != null && in.sprite(99_999) == null);

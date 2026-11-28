@@ -180,8 +180,8 @@ public final class ContractTests {
 		check("evidence: absent is distinct from zero and unknown", Evidence.absent(t, "x").status() == EvidenceStatus.VERIFIED_ABSENT && !Evidence.absent(t, "x").hasValue());
 		check("evidence: negative count refused", throwsIt(() -> Evidence.count(-1, t, "x")));
 
-		ContainerObservation cur = new ContainerObservation(Container.BANK, ContainerState.CURRENT, t, "x", Collections.singletonMap(1511, 1290L));
-		check("bank current: present verified", cur.quantity(1511).status() == EvidenceStatus.VERIFIED && cur.quantity(1511).value() == 1290L);
+		ContainerObservation cur = new ContainerObservation(Container.BANK, ContainerState.CURRENT, t, "x", Collections.singletonMap(1511, 1_000L));
+		check("bank current: present verified", cur.quantity(1511).status() == EvidenceStatus.VERIFIED && cur.quantity(1511).value() == 1_000L);
 		check("bank current: missing is verified absence (raw tuna, D-05 join)", cur.quantity(359).status() == EvidenceStatus.VERIFIED_ABSENT);
 		ContainerObservation empty = new ContainerObservation(Container.BANK, ContainerState.CURRENT, t, "x", Collections.emptyMap());
 		check("bank verified empty reads empty, not unknown", empty.verifiedEmpty() && empty.quantity(1511).status() == EvidenceStatus.VERIFIED_ABSENT);
