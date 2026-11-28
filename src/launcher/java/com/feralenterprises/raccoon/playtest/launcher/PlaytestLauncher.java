@@ -258,14 +258,10 @@ public final class PlaytestLauncher {
 		if (!Files.isRegularFile(cp)) { fail("no resolved classpath (" + home(cp) + "); run the prepare step"); return; }
 		String builtFrom = null;
 		try {
-			for (String line : Files.readAllLines(cp, StandardCharsets.UTF_8)) {
-				if (line.startsWith("# commit ")) builtFrom = line.substring(9).trim();
-				if (line.startsWith("#") || line.trim().isEmpty()) continue;
-				String[] p = line.split(" ", 3);
-				if (p.length != 3) { fail("malformed classpath line: " + line); return; }
-				Entry e = new Entry(p[0], p[1], Paths.get(p[2]));
-				if ("host".equals(e.coordinate)) host = e; else jars.add(e);
-			}
+			List<String> lines = Files.readAllLines(cp, StandardCharsets.UTF_8);
+			for (String line : lines) if (line.startsWith("# commit ")) builtFrom = line.substring(9).trim();
+			String problem = parseClasspath(lines);
+			if (problem != null) { fail(problem); return; }
 		} catch (IOException e) {
 			fail("classpath unreadable: " + e.getMessage());
 			return;
@@ -293,6 +289,28 @@ public final class PlaytestLauncher {
 		}
 		if (ok) pass(jars.size() + " RuneLite classpath JARs match the lock (SHA-256 recomputed now)");
 		checkClientVersion();
+	}
+
+	/**
+	 * Parses the resolved classpath into {@link #host} and {@link #jars}. Returns why it must be refused, or null. Every
+	 * coordinate, every JAR file and the host appear once: a duplicate is never folded into one entry, because two
+	 * entries for one coordinate (or one file under two names) would put a JAR on the client's classpath that the
+	 * one-entry-per-coordinate lock comparison cannot account for.
+	 */
+	private String parseClasspath(List<String> lines) {
+		java.util.Set<String> coordinates = new java.util.HashSet<>();
+		java.util.Set<Path> files = new java.util.HashSet<>();
+		for (String line : lines) {
+			if (line.startsWith("#") || line.trim().isEmpty()) continue;
+			String[] p = line.split(" ", 3);
+			if (p.length != 3) return "malformed classpath line: " + line;
+			Entry e = new Entry(p[0], p[1], Paths.get(p[2]));
+			if (!coordinates.add(e.coordinate))
+				return "resolved classpath lists " + ("host".equals(e.coordinate) ? "the host JAR" : e.coordinate) + " twice (duplicate); run the prepare step again";
+			if (!files.add(realOf(e.path))) return "resolved classpath lists the file " + home(e.path) + " twice (duplicate); run the prepare step again";
+			if ("host".equals(e.coordinate)) host = e; else jars.add(e);
+		}
+		return null;
 	}
 
 	/** Returns the recomputed hash, or null (and a FAIL) when the file is missing or differs. */
@@ -1013,14 +1031,11 @@ public final class PlaytestLauncher {
 		failed = false;
 		jars.clear();
 		if (!Files.isRegularFile(s.classpathFile)) { s.out.println("REFUSED: no resolved classpath; run the prepare step"); return false; }
-		for (String line : Files.readAllLines(s.classpathFile, StandardCharsets.UTF_8)) {
-			if (line.startsWith("#") || line.trim().isEmpty()) continue;
-			String[] p = line.split(" ", 3);
-			if (p.length == 3 && !"host".equals(p[1])) {
-				Entry e = new Entry(p[0], p[1], Paths.get(p[2]));
-				if (verifyFile(e, e.coordinate) == null) { for (String r : report) s.out.println(r); s.out.println("REFUSED"); return false; }
-				jars.add(e);
-			}
+		host = null;
+		String problem = parseClasspath(Files.readAllLines(s.classpathFile, StandardCharsets.UTF_8));
+		if (problem != null) { s.out.println("REFUSED: " + problem); return false; }
+		for (Entry e : jars) {
+			if (verifyFile(e, e.coordinate) == null) { for (String r : report) s.out.println(r); s.out.println("REFUSED"); return false; }
 		}
 		jars.sort((a, b) -> a.coordinate.compareTo(b.coordinate));
 		StringBuilder b = new StringBuilder("# Raccoon R02 playtest classpath lock v1 (RuneLite client runtime classpath, SHA-256)\n");
