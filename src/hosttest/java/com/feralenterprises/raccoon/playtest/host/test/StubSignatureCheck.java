@@ -51,6 +51,17 @@ public final class StubSignatureCheck {
 		// Fact: saved Jagex accounts live in RUNELITE_DIR (so in the isolated profile), loaded by the developer Jagex Auth plugin.
 		{C + "rs/auth/SessionStore.java", "c65082d265ed74948ff8adc3175394cda8c789cb",
 			"private static final Path SESSIONS_FILE = RuneLite.RUNELITE_DIR.toPath().resolve(\"jagex-accounts.dat\");"},
+		// Fact (ordinary-account launch): SessionStore loads nothing and touches no credential when the profile has no
+		// jagex-accounts.dat (the launcher refuses a profile that has one); the key is read or created only on Windows,
+		// through WindowsCredentialStore, which reads before it creates and has no delete call (the blob pins the file).
+		{C + "rs/auth/SessionStore.java", "c65082d265ed74948ff8adc3175394cda8c789cb",
+			"if (!Files.exists(SESSIONS_FILE))", "return WindowsCredentialStore.getOrCreateKey();"},
+		{C + "rs/auth/WindowsCredentialStore.java", "08d50462494d352766ee14616cdeff1f5836cad4",
+			"private static final String TARGET = \"RuneLite SessionStore\";",
+			"if (Advapi32.INSTANCE.CredReadW(new WString(TARGET), CRED_TYPE_GENERIC, 0, credentialRef))",
+			"boolean CredReadW(WString target, int type, int flags, PointerByReference credential);",
+			"boolean CredWriteW(Credential credential, int flags);",
+			"void CredFree(Pointer credential);"},
 		{C + "plugins/jagexauth/JagexAuthPlugin.java", "7e9ee7c6e375cbef595dc945b4dfd05793591edf", "developerPlugin = true,", "jagexAuthService.loadFromStore()"},
 		{A + "ItemComposition.java", "517c3949b6d4cdd995cef42af407042bf68a251e", "String getName();"},
 		{A + "GameState.java", "526c89f06e936d1f5a563486e3724d60fcee5a88",

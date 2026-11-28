@@ -8,24 +8,22 @@ RuneLite.
 
 ## GitHub Desktop quick launch
 
-**Once:** On the dedicated standard `RaccoonTest` Windows account, install Temurin **11.0.33+10** and set `JAVA_HOME` to its JDK folder. Open the Project Raccoon checkout in GitHub Desktop and select `test/r02-windows-playtest`. Copy these two intact ZIPs from the cleared private owner package into `%USERPROFILE%\RaccoonPlaytest\inputs`, outside the repository:
+**Once:** On your regular Windows account (no separate account needed), install Temurin **11.0.33+10** and set `JAVA_HOME` to its JDK folder. Open the Project Raccoon checkout in GitHub Desktop and select `test/r02-windows-playtest`. Copy these two intact ZIPs from the cleared private owner package into `%USERPROFILE%\RaccoonPlaytest\inputs`, outside the repository:
 
 - `Project-Raccoon-R02-Review.zip`
 - `Project-Raccoon-R02-Lane-Inputs.zip`
 
-**Every playtest:** Pull origin in GitHub Desktop. Choose **Repository → Show in Explorer** and double-click **START-R02.cmd** at the repository root. It prepares the build automatically when needed and starts RuneLite only after the existing preflight reports READY. Stay at the RuneLite login screen. If the console stops on an error, keep its message for Solis.
+**Every playtest:** Pull origin in GitHub Desktop. Choose **Repository → Show in Explorer** and double-click **START-R02.cmd** at the repository root (a normal double-click, not *Run as administrator*). Close your normal RuneLite and the Jagex Launcher first. It prepares the build automatically when needed and starts RuneLite only after the existing preflight reports READY. Stay at the RuneLite login screen. If the console stops on an error, keep its message for Solis.
 
 Solis promotes explicitly cleared commits to the canonical playtest branch. The quick launcher checks that the local branch, its tracked origin SHA and the live GitHub branch SHA all agree. The manual commands below are available for troubleshooting.
 
 ## What you need (once)
 
-1. **A dedicated standard Windows account** whose name starts with `RaccoonTest` (for example `RaccoonTest`), the
-   same one used for the FR-006 kit. It must **not** be an administrator, and you must never have run RuneLite in it.
-   Everything below happens while signed in to Windows as that account. This keeps Windows Credential Manager, AppData
-   and the registry of your own account completely out of reach. To remove everything later, delete that Windows
-   account.
-2. **Temurin 11.0.33** installed, with `JAVA_HOME` pointing at it in that account.
-3. **Git for Windows**, and this repository checked out in that account at the commit Solis names. That commit must
+1. **Your regular Windows account.** Your normal RuneLite, its settings and your saved sign-in can stay where they are:
+   the playtest never uses, changes or removes them. Start it normally, not elevated (*Run as administrator* is
+   refused). A dedicated `RaccoonTest...` account still works with its stricter FR-006 rules, but is not required.
+2. **Temurin 11.0.33** installed, with `JAVA_HOME` pointing at it.
+3. **Git for Windows** (or GitHub Desktop), and this repository checked out at the commit Solis names. That commit must
    already be pushed to the `feralenterprises` GitHub repository and fetched.
 4. **The frozen R02 review package**, extracted outside the repository (for example `C:\Raccoon\Project-Raccoon-R02`).
    To check the ZIP first, run `certutil -hashfile Project-Raccoon-R02-Review.zip SHA256`. It should print
@@ -92,7 +90,9 @@ whole profile folder.
 
 Run `playtest\r02-playtest.cmd wipe`. It deletes only the playtest profile folder. It refuses if that folder is not
 the launcher's own, or contains any link or junction that could lead elsewhere. It never touches Windows Credential
-Manager: if you added a Jagex account, delete the whole `RaccoonTest` Windows account instead. The next launch refuses
+Manager. If you added a Jagex account in the playtest client, tell Solis: the playtest copy is wiped, and the key
+RuneLite keeps in Credential Manager (`RuneLite SessionStore`), shared with your normal RuneLite, is left alone on
+purpose. The next launch refuses
 to start until sign-in files are gone.
 
 ## If the launcher says STOPPED
@@ -102,12 +102,19 @@ to Solis. Only Solis decides when the `PLAYTEST-STOPPED.txt` file may be removed
 
 ## What keeps this safe
 
-- **A separate Windows account.** Credential Manager, AppData and the registry used here are the test account's own.
+- **Your account's own RuneLite is never used.** On a regular account the launcher refuses an elevated start, refuses a
+  playtest profile holding any sign-in file, and watches before and after every run: your `.runelite` and
+  `jagexcache` folders (every file), the `RuneLite`, `Jagex` and `Jagex Launcher` folders in AppData (every file), new
+  or removed top-level entries in your home folder and AppData, the shared Java preferences and whether the
+  `RuneLite SessionStore` credential exists. Any change stops the launcher. Other programs' activity elsewhere in your
+  home folder is not watched (it changes constantly). RuneLite 1.13.8 touches Credential Manager only to read or create
+  the `RuneLite SessionStore` key when a Jagex account is added or loaded in its own folder, and never deletes it;
+  staying on the login screen with an empty profile touches it not at all. On a dedicated `RaccoonTest` account the
+  whole home folder and AppData are watched as before.
 - **Its own folder.** The client's home, temporary files (including the Jagex sign-in browser's data), Java
   preferences, and the per-user folders Windows programs use (`USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `HOMEDRIVE`/
-  `HOMEPATH`) all point into the playtest profile. Everything else in the test account's home folder, including
-  everything inside AppData, is recorded before and after every run, together with the shared Java preferences and
-  the RuneLite SessionStore credential. Links and junctions are recorded, never followed. Any change, or anything that
+  `HOMEPATH`) all point into the playtest profile. The locations listed above are recorded before and after
+  every run. Links and junctions are recorded, never followed. Any change, or anything that
   cannot be read, stops the launcher. Windows itself sometimes writes in AppData while programs run; if that stops the
   launcher, send the run folder to Solis as usual.
 - **No sign-in passed in.** Jagex launcher sign-in variables (`JX_...`) and injected Java options are removed. The
@@ -124,8 +131,8 @@ to Solis. Only Solis decides when the `PLAYTEST-STOPPED.txt` file may be removed
 
 | Message | What to do |
 | --- | --- |
-| `not the dedicated test account` / `is an administrator` | Sign in to Windows as the standard `RaccoonTest` account. |
-| `has its own RuneLite folder` / `RuneLite is installed in this account` | Use a fresh test account that has never run RuneLite. |
+| `running elevated` | Close the window and double-click `START-R02.cmd` normally, not with *Run as administrator*. |
+| `is an administrator` / `has its own RuneLite folder` / `RuneLite is installed in this account` | Only on a `RaccoonTest...` account: use your regular account instead, or a fresh test account. |
 | `close RuneLite and the Jagex Launcher first` | Close them and run the check again. |
 | `JDK is ...` | Set `JAVA_HOME` to Temurin 11.0.33. |
 | `uncommitted or untracked changes` | Run `git status`. Remove the files (ask before committing anything). |

@@ -66,6 +66,13 @@ public final class PlaytestLauncher {
 	public static final String TEST_ACCOUNT_PREFIX = "RaccoonTest";
 	/** BUILTIN\Administrators; listed by whoami /groups also as deny-only for a non-elevated administrator. */
 	static final String ADMINISTRATORS_SID = "S-1-5-32-544";
+	/** Mandatory integrity labels (locale-independent SIDs in whoami /groups): any label, and the elevated ones. */
+	static final String INTEGRITY_LABEL_PREFIX = "S-1-16-";
+	static final List<String> ELEVATED_LABELS = Collections.unmodifiableList(Arrays.asList("S-1-16-12288", "S-1-16-16384"));
+	/** RuneLite and Jagex folders in APPDATA and LOCALAPPDATA watched recursively on an ordinary account. */
+	static final List<String> RUNELITE_APP_DIRS = Collections.unmodifiableList(Arrays.asList("RuneLite", "Jagex", "Jagex Launcher"));
+	/** Folders of the account's home watched recursively on an ordinary account (the owner's own RuneLite data). */
+	static final List<String> RUNELITE_HOME_DIRS = Collections.unmodifiableList(Arrays.asList(".runelite", "jagexcache"));
 	public static final String LATCH = "PLAYTEST-STOPPED.txt";
 	/** Exit code of a launch whose post-run isolation check failed or could not be read, whatever the client returned. */
 	public static final int EXIT_ISOLATION_FAILED = 3;
@@ -103,7 +110,10 @@ public final class PlaytestLauncher {
 		java.util.function.Function<List<String>, String> command = PlaytestLauncher::run;
 		/** Names of running processes (tests replace it). */
 		java.util.function.Supplier<List<String>> processes = PlaytestLauncher::processNames;
-		/** The OS account: name, and whether it is an administrator (null = could not be read). Tests replace it. */
+		/**
+		 * The OS account: name, whether it is an administrator, and whether this process is elevated (null = could not
+		 * be read). Tests replace it; a two-value answer counts administrator membership as elevation.
+		 */
 		java.util.function.Supplier<String[]> account;
 		/** SHA-256 the package's SHA256SUMS.txt must have (production: the accepted package; tests: a synthetic one). */
 		String packageSumsSha256 = PACKAGE_SUMS_SHA256;
@@ -203,6 +213,10 @@ public final class PlaytestLauncher {
 		checkLatch();
 		checkJdk();
 		checkAccount();
+		if (ordinaryAccount()) info("ordinary account: the client still runs only in the playtest profile. Watched outside it: ~/.runelite and"
+			+ " ~/jagexcache (recursively), new or removed top-level entries in your home" + (s.windows ? ", APPDATA and LOCALAPPDATA, their RuneLite,"
+			+ " Jagex and Jagex Launcher folders (recursively), the shared Java preferences and the RuneLite SessionStore credential (never read)" : " and the shared Java preferences")
+			+ ". Other activity elsewhere in your home is not watched");
 		checkProcesses();
 		checkRepo();
 		checkClasspath();
@@ -536,19 +550,42 @@ public final class PlaytestLauncher {
 			fail("a previous playtest changed a protected location (" + home(latchFile()) + "); send its run record to Solis. Only the reviewer removes this file");
 	}
 
+	/** Whether this is an ordinary (owner's regular) account rather than the dedicated RaccoonTest account. Fixed per launcher. */
+	private Boolean ordinary;
+
+	boolean ordinaryAccount() {
+		if (ordinary == null) {
+			String[] f = s.account == null ? null : s.account.get();
+			// Unknown name: the stricter dedicated-account rules and full-home watch apply (and the check refuses anyway).
+			ordinary = f != null && f[0] != null && !f[0].toLowerCase(java.util.Locale.ROOT).startsWith(TEST_ACCOUNT_PREFIX.toLowerCase(java.util.Locale.ROOT));
+		}
+		return ordinary;
+	}
+
 	/**
-	 * The dedicated standard test account (FR-006 kit rule, applied to every launch here): the account name starts with
-	 * RaccoonTest, it is not an administrator, it has no RuneLite folder of its own and (Windows) no installed RuneLite.
-	 * The Windows account boundary keeps Credential Manager, AppData and HKCU away from the owner's own RuneLite.
+	 * Two account kinds. The dedicated standard test account (FR-006 kit rule): the name starts with RaccoonTest, it is
+	 * not an administrator, it has no RuneLite folder of its own and (Windows) no installed RuneLite; its whole home and
+	 * AppData are watched. An ordinary account (the owner's regular Windows account, issue #1 owner blocker): any name,
+	 * an existing normal RuneLite and saved sign-in allowed, but the launcher must not run elevated. The owner's RuneLite
+	 * data is never used: the client's home, temporary files, AppData and Java preferences point into the playtest profile,
+	 * the profile must hold no sign-in files, and the owner's RuneLite/Jagex locations, the Java preferences and the
+	 * SessionStore credential are watched before and after. RuneLite 1.13.8 touches Windows Credential Manager only to
+	 * read or create the SessionStore key when saving or loading jagex-accounts.dat in its own folder (the profile); it
+	 * never deletes it (HostStubCheck pins that source).
 	 */
 	private void checkAccount() {
 		String[] f = s.account == null ? null : s.account.get();
-		if (f == null || f[0] == null || f[1] == null) { fail("could not read the operating-system account; nothing is started"); return; }
-		boolean ok = true;
-		if (!f[0].toLowerCase(java.util.Locale.ROOT).startsWith(TEST_ACCOUNT_PREFIX.toLowerCase(java.util.Locale.ROOT))) {
-			fail("this is not the dedicated test account: sign in to Windows as a standard account named " + TEST_ACCOUNT_PREFIX + "...");
-			ok = false;
+		String elevated = f == null ? null : f.length > 2 ? f[2] : f.length > 1 ? f[1] : null;
+		if (f == null || f[0] == null || f[1] == null || elevated == null) { fail("could not read the operating-system account; nothing is started"); return; }
+		if (ordinaryAccount()) {
+			if ("yes".equals(elevated)) {
+				fail("running elevated (Run as administrator); start START-R02.cmd with a normal double-click instead");
+				return;
+			}
+			pass("ordinary account " + f[0] + " (not elevated); your own RuneLite folder, saved sign-in and Credential Manager entries are not used, changed or removed");
+			return;
 		}
+		boolean ok = true;
 		if ("yes".equals(f[1])) { fail("this account is an administrator; the playtest needs a standard account"); ok = false; }
 		if (Files.exists(s.realHome.resolve(".runelite"))) { fail("this account has its own RuneLite folder (" + home(s.realHome.resolve(".runelite")) + "); use a fresh test account"); ok = false; }
 		String local = s.environment.get("LOCALAPPDATA");
@@ -556,14 +593,23 @@ public final class PlaytestLauncher {
 		if (ok) pass("dedicated standard test account " + f[0]);
 	}
 
+	/** {name, administrator member, elevated now}; null where unreadable. */
 	static String[] accountFacts(Settings st) {
 		if (st.windows) {
 			String name = st.environment.get("USERNAME");
 			String groups = st.command.apply(Arrays.asList("whoami.exe", "/groups"));
-			return new String[] {name, groups == null ? null : groups.contains(ADMINISTRATORS_SID) ? "yes" : "no"};
+			if (groups == null || groups.startsWith("EXIT ")) return new String[] {name, null, null};
+			String admin = groups.contains(ADMINISTRATORS_SID) ? "yes" : "no";
+			String elevated = null;
+			if (groups.contains(INTEGRITY_LABEL_PREFIX)) {
+				elevated = "no";
+				for (String label : ELEVATED_LABELS) if (java.util.regex.Pattern.compile("(?<![0-9-])" + java.util.regex.Pattern.quote(label) + "(?![0-9])").matcher(groups).find()) elevated = "yes";
+			}
+			return new String[] {name, admin, elevated};
 		}
 		String id = st.command.apply(Arrays.asList("id", "-u"));
-		return new String[] {System.getProperty("user.name"), id == null ? null : "0".equals(id.trim()) ? "yes" : "no"};
+		String root = id == null || id.startsWith("EXIT ") ? null : "0".equals(id.trim()) ? "yes" : "no";
+		return new String[] {System.getProperty("user.name"), root, root};
 	}
 
 	private void checkProcesses() {
@@ -667,7 +713,15 @@ public final class PlaytestLauncher {
 		Snapshot sn = new Snapshot();
 		Path h = s.realHome.toAbsolutePath().normalize();
 		List<Path> skip = Arrays.asList(h.resolve(".raccoon-r02-playtest"), s.profile.toAbsolutePath().normalize(), lockPath().toAbsolutePath().normalize());
-		tree(sn, "home", h, skip, false);
+		boolean scoped = ordinaryAccount();
+		if (scoped) {
+			// An ordinary account's home and AppData change constantly (browsers, sync, Windows). Watch what RuneLite and
+			// Jagex use, recursively, and any new or removed top-level entry where a stray per-user write would land.
+			top(sn, "home", h, skip);
+			for (String d : RUNELITE_HOME_DIRS) tree(sn, "home/" + d, h.resolve(d), skip, false);
+		} else {
+			tree(sn, "home", h, skip, false);
+		}
 		if (s.windows) {
 			String reg = s.command.apply(Arrays.asList("reg.exe", "query", "HKCU\\Software\\JavaSoft\\Prefs", "/s"));
 			if (reg == null) sn.incomplete.add("java-preferences");
@@ -681,7 +735,10 @@ public final class PlaytestLauncher {
 				String d = s.environment.get(v);
 				if (d == null) { sn.incomplete.add(v); continue; }
 				Path dir = Paths.get(d).toAbsolutePath().normalize();
-				if (!dir.startsWith(h)) tree(sn, v, dir, skip, false);
+				if (scoped) {
+					top(sn, v, dir, skip);
+					for (String n : RUNELITE_APP_DIRS) tree(sn, v + "/" + n, dir.resolve(n), skip, false);
+				} else if (!dir.startsWith(h)) tree(sn, v, dir, skip, false);
 			}
 		} else {
 			tree(sn, "java-preferences", h.resolve(".java/.userPrefs"), skip, true);
@@ -697,6 +754,41 @@ public final class PlaytestLauncher {
 			Snapshot sn = new Snapshot();
 			sn.incomplete.add("snapshot failed (" + e.getClass().getSimpleName() + ")");
 			return sn;
+		}
+	}
+
+	/**
+	 * The direct entries of {@code root} by presence and kind only (file, folder, link target, other), never followed:
+	 * a new or removed entry is a change, an ordinary file's own updates are not. Registry hive files are left out.
+	 */
+	private void top(Snapshot sn, String label, Path root, List<Path> skip) {
+		if (!Files.exists(root, java.nio.file.LinkOption.NOFOLLOW_LINKS)) { sn.entries.put(label + "/", "absent"); return; }
+		List<Path> kids = new ArrayList<>();
+		try (java.nio.file.DirectoryStream<Path> ds = Files.newDirectoryStream(root)) {
+			for (Path k : ds) kids.add(k);
+		} catch (IOException e) {
+			sn.incomplete.add(label + "/.");
+			return;
+		}
+		for (Path k : kids) {
+			if (skip.contains(k.toAbsolutePath().normalize())) continue;
+			String name = k.getFileName().toString();
+			BasicFileAttributes a;
+			try {
+				a = Files.readAttributes(k, BasicFileAttributes.class, java.nio.file.LinkOption.NOFOLLOW_LINKS);
+			} catch (IOException e) {
+				sn.incomplete.add(label + "/" + name);
+				continue;
+			}
+			if (s.windows && !a.isDirectory() && HIVE.matcher(name).matches()) continue;
+			String v;
+			if (a.isSymbolicLink()) {
+				String target;
+				try { target = Files.readSymbolicLink(k).toString(); } catch (IOException | UnsupportedOperationException x) { target = "?"; }
+				v = "link:" + target;
+			} else if (a.isOther()) v = "other";
+			else v = a.isDirectory() ? "dir" : "file";
+			sn.entries.put(label + "/" + name + " (entry)", v);
 		}
 	}
 

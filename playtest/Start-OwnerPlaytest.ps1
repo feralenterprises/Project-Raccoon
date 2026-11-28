@@ -108,9 +108,8 @@ function Test-NeedingPrepare([string]$Repo, [string]$Sha) {
 }
 
 function Invoke-Playtest {
-    if ([Environment]::UserName -notmatch '\ARaccoonTest') {
-        throw 'Sign into the dedicated standard RaccoonTest Windows account and run START-R02.cmd there.'
-    }
+    # Runs on the owner's regular Windows account. The launcher's preflight refuses an elevated start and keeps the
+    # client inside its own playtest profile; it never uses, changes or removes the account's own RuneLite sign-in.
     $script:GitExe = Find-Git
     $env:PATH = "$(Split-Path -Parent $script:GitExe);$env:PATH"
     $repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
