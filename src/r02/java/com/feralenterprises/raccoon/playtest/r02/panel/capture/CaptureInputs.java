@@ -41,6 +41,9 @@ public final class CaptureInputs {
 
 	private CaptureInputs(List<Source> sources) { this.sources = Collections.unmodifiableList(sources); }
 
+	/** Test seam: synthetic sources, no lane inputs. Never used by the host. */
+	static CaptureInputs synthetic(List<Source> sources) { return new CaptureInputs(new java.util.ArrayList<>(sources)); }
+
 	public static CaptureInputs load(LaneInputs lane, Path frozenReview) throws IOException {
 		byte[] bytes = Files.readAllBytes(frozenReview.resolve("Project-Raccoon-R02.html"));
 		if (!FROZEN_HTML_SHA256.equals(LaneInputs.sha256(bytes))) throw new IOException("Frozen R02 review SHA-256 mismatch");

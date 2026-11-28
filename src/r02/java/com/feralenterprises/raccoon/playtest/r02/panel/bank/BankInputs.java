@@ -53,6 +53,17 @@ public final class BankInputs {
 
 	public static BankInputs load(LaneInputs lane) throws IOException { return new BankInputs(lane); }
 
+	/** Test seam: synthetic catalog and state copy, no lane inputs (no sprites). Never used by the host. */
+	private BankInputs(Map<Integer, CatalogItem> catalog, Map<String, String[]> states) {
+		this.lane = null;
+		this.catalog = Collections.unmodifiableMap(new HashMap<>(catalog));
+		this.states = Collections.unmodifiableMap(new HashMap<>(states));
+	}
+
+	static BankInputs synthetic(Map<Integer, CatalogItem> catalog, Map<String, String[]> states) { return new BankInputs(catalog, states); }
+
+	static CatalogItem item(int id, String name, String category, Long unitPrice) { return new CatalogItem(id, name, category, unitPrice); }
+
 	private final Map<Integer, java.awt.image.BufferedImage> sprites = new java.util.concurrent.ConcurrentHashMap<>();
 	private static final java.awt.image.BufferedImage NONE = new java.awt.image.BufferedImage(1, 1, java.awt.image.BufferedImage.TYPE_INT_ARGB);
 
@@ -63,7 +74,7 @@ public final class BankInputs {
 	public java.awt.image.BufferedImage sprite(int id) {
 		java.awt.image.BufferedImage img = sprites.computeIfAbsent(id, k -> {
 			String rel = "shared/osrs-items/" + k + ".png";
-			if (!lane.has(rel)) return NONE;
+			if (lane == null || !lane.has(rel)) return NONE;
 			try {
 				java.awt.image.BufferedImage b = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(lane.bytes(rel)));
 				return b == null ? NONE : b;

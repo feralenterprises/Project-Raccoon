@@ -133,7 +133,9 @@ final class XpEngine {
 		ContainerObservation o = s.container(c);
 		if (o == null) return null;
 		if (o.state() == ContainerState.CURRENT || o.state() == ContainerState.HISTORICAL) return o.items();
-		return null; // incomplete or unavailable: no quantities may be claimed
+		// Frozen read.bank.snapshot: an incomplete bank keeps only the earlier complete capture it retains (saved).
+		if (c == Container.BANK && o.state() == ContainerState.INCOMPLETE && o.retained() != null) return o.retained().items();
+		return null; // incomplete (nothing retained) or unavailable: no quantities may be claimed
 	}
 
 	static boolean bankCurrent(FixtureSnapshot s) {
