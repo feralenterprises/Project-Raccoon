@@ -108,7 +108,8 @@ final class CaptureModel {
 			switch (cs) {
 				case CURRENT: return new Row(src, State.VERIFIED, b.observedAt(), b.items().isEmpty());
 				case HISTORICAL: return new Row(src, State.HISTORICAL, b.observedAt(), false);
-				case INCOMPLETE: return new Row(src, State.INCOMPLETE, null, false);
+				// Frozen capStatus: an incomplete capture stays Incomplete but keeps the last complete time it retains.
+				case INCOMPLETE: return new Row(src, State.INCOMPLETE, b.retained() == null ? null : b.retained().observedAt(), false);
 				default: return new Row(src, State.WAITING, null, false);
 			}
 		}

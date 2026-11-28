@@ -19,7 +19,8 @@ import java.util.stream.Collectors;
 /**
  * Bank Memory's view of one snapshot (frozen R02 {@code bankRender}). The shared bank observation of this scope is the
  * only authority: {@code CURRENT} is a verified open bank (empty when it has no items), {@code HISTORICAL} the last
- * complete capture (changes since unknown), {@code INCOMPLETE} withholds every record (no ownership claim),
+ * complete capture (changes since unknown), {@code INCOMPLETE} withholds its own partial records (no ownership claim)
+ * and shows only the earlier complete capture it retains, as historical (frozen {@code incompleteRetained}),
  * {@code UNAVAILABLE} awaits a capture, signed out exposes nothing. Item identity is the exact item ID; the frozen
  * catalog supplies only name, category and an illustrative price for that same ID.
  */
@@ -34,6 +35,9 @@ final class BankModel {
 
 		Sort(String label) { this.label = label; }
 	}
+
+	/** Frozen {@code bankRender} note for an incomplete observation that keeps the earlier complete capture. */
+	static final String RETAINED_NOTE = "Incomplete capture discarded. Showing the earlier complete snapshot only; present ownership is unknown.";
 
 	private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("d MMM yyyy · HH:mm 'UTC'", Locale.UK).withZone(ZoneOffset.UTC);
 
@@ -58,7 +62,7 @@ final class BankModel {
 	final State state;
 	final String account, statusLabel, statusNote, observed, countText, countLabel, valueText, valueLabel, valueNote, accountNote,
 		quantityLabel;
-	/** Null when no complete observation may be shown (awaiting, incomplete, signed out). */
+	/** Null when no complete observation may be shown (awaiting, incomplete with nothing retained, signed out). */
 	final List<Row> items;
 	final boolean current;
 
@@ -73,13 +77,17 @@ final class BankModel {
 		else state = State.AWAITING;
 		current = state == State.POPULATED || state == State.EMPTY;
 		String[] info = in.states.get(state.name().toLowerCase(Locale.ROOT));
+		// The complete capture this page may show: the observation itself when complete, or the earlier complete
+		// capture an incomplete observation retains (always HISTORICAL). Partial quantities are never shown or totalled.
+		ContainerObservation complete = current || state == State.HISTORICAL ? bank
+			: state == State.INCOMPLETE ? bank.retained() : null;
 		statusLabel = info[0];
-		statusNote = info[1];
-		boolean shown = current || state == State.HISTORICAL;
-		observed = shown ? "Last verified: " + TIME.format(bank.observedAt()) : "Last verified: unavailable";
+		statusNote = state == State.INCOMPLETE && complete != null ? RETAINED_NOTE : info[1];
+		boolean shown = complete != null;
+		observed = shown ? "Last verified: " + TIME.format(complete.observedAt()) : "Last verified: unavailable";
 		if (shown) {
 			List<Row> rows = new ArrayList<>();
-			for (Map.Entry<Integer, Long> e : bank.items().entrySet()) rows.add(row(e.getKey(), e.getValue(), registry, in));
+			for (Map.Entry<Integer, Long> e : complete.items().entrySet()) rows.add(row(e.getKey(), e.getValue(), registry, in));
 			rows.sort(Comparator.comparingInt(r -> r.id));
 			items = Collections.unmodifiableList(rows);
 		} else items = null;

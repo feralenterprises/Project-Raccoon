@@ -12,7 +12,6 @@ import com.feralenterprises.raccoon.playtest.r02.panel.xpstash.XpRetainedChecks;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
@@ -39,15 +38,19 @@ public final class RetainedBankRegression {
 	private static int failed, passed;
 
 	public static void main(String[] args) {
-		BiConsumer<String, Boolean> check = (name, ok) -> {
+		run((name, ok) -> {
 			if (ok) passed++; else failed++;
 			System.out.println((ok ? "PASS " : "FAIL ") + name);
-		};
+		});
+		System.out.println(passed + " passed, " + failed + " failed");
+		if (failed > 0) System.exit(1);
+	}
+
+	/** Every check, for a host suite (for example {@code ContractTests}, as it runs {@code SharedGapTests.run}). */
+	public static void run(BiConsumer<String, Boolean> check) {
 		bank(check);
 		CaptureRetainedChecks.run(check);
 		XpRetainedChecks.run(check);
-		System.out.println(passed + " passed, " + failed + " failed");
-		if (failed > 0) System.exit(1);
 	}
 
 	public static Map<Integer, Long> items(long... kv) {
@@ -120,6 +123,4 @@ public final class RetainedBankRegression {
 			&& u.countText.equals("Unknown") && u.valueText.equals("Unknown") && !u.current
 			&& "No complete snapshot".equals(u.message(0)[0]) && u.statusNote.equals("This capture cannot establish ownership. Open your bank again for a complete observation."));
 	}
-
-	static List<Integer> ids(BankModel m) { return m.items.stream().map(r -> r.id).collect(Collectors.toList()); }
 }
