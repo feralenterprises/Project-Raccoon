@@ -859,6 +859,29 @@ public final class LauncherTests {
 				refused("L6 a link inside the package", "link", null, io(x -> Files.delete(pl)));
 			} else System.out.println("  SKIP L6 link check: no symbolic-link or junction privilege");
 		}
+		// L8: a resolved classpath that names the same coordinate, the same JAR or the host twice is refused (Feral's
+		// lock verification). A duplicate must never be folded into one entry, even when its hash matches the lock.
+		{
+			String depLine = PlaytestLauncher.sha256(depJar) + " com.google.inject:guice:4.2.3 " + depJar;
+			refused("L8 the same coordinate twice in the resolved classpath", "duplicate", s -> writeClasspath(commit, "1.13.8", depLine),
+				io(x -> writeClasspath(commit, "1.13.8", null)));
+			Path copy = libs.resolve("guice-copy.jar");
+			Files.copy(depJar, copy, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+			refused("L8 the same coordinate twice from two JAR files", "duplicate", s -> writeClasspath(commit, "1.13.8",
+				PlaytestLauncher.sha256(copy) + " com.google.inject:guice:4.2.3 " + copy), io(x -> writeClasspath(commit, "1.13.8", null)));
+			refused("L8 one JAR file listed under two coordinates", "duplicate", s -> writeClasspath(commit, "1.13.8",
+				PlaytestLauncher.sha256(depJar) + " evil:alias:1 " + depJar), io(x -> writeClasspath(commit, "1.13.8", null)));
+			refused("L8 a second host JAR", "duplicate", s -> writeClasspath(commit, "1.13.8",
+				PlaytestLauncher.sha256(hostJar) + " host " + hostJar), io(x -> writeClasspath(commit, "1.13.8", null)));
+			Path lockBackup = work.resolve("lock-backup");
+			Files.copy(lock, lockBackup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+			Files.delete(lock);
+			writeClasspath(commit, "1.13.8", depLine);
+			PlaytestLauncher r = new PlaytestLauncher(settings());
+			T.that("L8 record-lock refuses a resolved classpath with a duplicate", !r.recordLock() && out().contains("duplicate") && !Files.exists(lock));
+			Files.copy(lockBackup, lock, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+			writeClasspath(commit, "1.13.8", null);
+		}
 		T.that("L*: after the regressions a launch is READY again", new PlaytestLauncher(settings()).check(true));
 	}
 
