@@ -204,12 +204,15 @@ public final class PlaytestSession implements Disposable {
 		disposed = true;
 		composition.dispose();
 		fixtures.setActionHandler(a -> { });
+		// A lane entry may still hold the dispatcher and queue work: retire its publication authority for good.
+		fixtures.retire();
 		stateListeners.clear();
 		Map<String, Integer> t = new LinkedHashMap<>();
 		t.put("pageSubscriptions", composition.openPageSubscriptions());
 		t.put("fixtureListeners", fixtures.listenerCount());
 		t.put("uiContextListenersAboveBaseline", ui.listenerCount() - uiListenerBaseline);
 		t.put("shellNotDisposed", composition.shell().isDisposed() ? 0 : 1);
+		t.put("dispatcherNotRetired", fixtures.retired() ? 0 : 1);
 		teardown = t;
 		record.event("teardown", t.toString().replace('{', '[').replace('}', ']'));
 	}

@@ -794,6 +794,7 @@ public final class LauncherTests {
 			int rc = l.launch();
 			T.that("L4 launch: the instance lock is held through the post-run check", rc == 0 && "held".equals(seen[0]));
 			T.that("L7 exit: a clean run keeps the client's exit code 0", rc == 0);
+			T.that("L7 exit: the isolation exit code is the documented 3", PlaytestLauncher.EXIT_ISOLATION_FAILED == 3);
 			if (!"held".equals(seen[0])) System.out.println("  lock during postflight: " + seen[0] + (rc == 0 ? "" : "\n" + out()));
 			T.that("L4 launch: the lock is released afterwards", "free".equals(probeLock(l.lockPath())));
 		}

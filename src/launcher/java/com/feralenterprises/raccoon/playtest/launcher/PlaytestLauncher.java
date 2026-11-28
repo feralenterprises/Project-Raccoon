@@ -67,6 +67,8 @@ public final class PlaytestLauncher {
 	/** BUILTIN\Administrators; listed by whoami /groups also as deny-only for a non-elevated administrator. */
 	static final String ADMINISTRATORS_SID = "S-1-5-32-544";
 	public static final String LATCH = "PLAYTEST-STOPPED.txt";
+	/** Exit code of a launch whose post-run isolation check failed or could not be read, whatever the client returned. */
+	public static final int EXIT_ISOLATION_FAILED = 3;
 	public static final String ISOLATION_MAIN_FACTORY = "com.feralenterprises.raccoon.playtest.isolation.FilePreferencesFactory";
 	/** Files that mean a real account session could be reused. Their presence blocks a launch. */
 	public static final List<String> SIGN_IN_FILES = Collections.unmodifiableList(Arrays.asList(
@@ -905,7 +907,8 @@ public final class PlaytestLauncher {
 			List<String> changed = before.changes(afterSnap);
 			List<String> after = signInFiles(profile);
 			rec.add("INFO  client exit code " + rc);
-			if (changed.isEmpty() && afterSnap.incomplete.isEmpty()) rec.add("PASS  protected locations outside the profile unchanged (" + before.entries.size() + " entries)");
+			boolean isolated = changed.isEmpty() && afterSnap.incomplete.isEmpty();
+			if (isolated) rec.add("PASS  protected locations outside the profile unchanged (" + before.entries.size() + " entries)");
 			else {
 				rec.add("FAIL  protected locations changed " + changed + (afterSnap.incomplete.isEmpty() ? "" : " or unreadable " + afterSnap.incomplete) + ": launcher latched");
 				Files.createDirectories(latchFile().getParent());
@@ -915,11 +918,13 @@ public final class PlaytestLauncher {
 			}
 			if (after.isEmpty()) rec.add("PASS  no sign-in files left in the profile");
 			else rec.add("WARN  sign-in files now in the profile " + after + ": run wipe before sharing or reusing it");
+			rec.add("INFO  launcher exit code " + (isolated ? rc : EXIT_ISOLATION_FAILED));
 			writeRecord(runDir, rec, after);
-			s.out.println("Finished (exit " + rc + "). Run record: " + home(runDir));
+			s.out.println("Finished (client exit " + rc + ", launcher exit " + (isolated ? rc : EXIT_ISOLATION_FAILED) + "). Run record: " + home(runDir));
 			if (!after.isEmpty()) s.out.println("WARNING: the profile now holds sign-in files " + after + ". Run the wipe step.");
 			if (Files.exists(latchFile())) s.out.println("STOPPED: something outside the playtest profile changed. Send the run record to Solis; no further launches.");
-			return rc;
+			// A failed isolation check is a failed run even when the client itself exited successfully.
+			return isolated ? rc : EXIT_ISOLATION_FAILED;
 		} finally {
 			releaseLock();
 		}

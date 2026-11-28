@@ -14,7 +14,8 @@ import javax.swing.SwingUtilities;
  * <li>a new scope becomes current and {@code onScopeChange} then discards every route page and the history in the
  * same EDT task, so pages of the new scope are built from the new snapshot and no old page is told about it.</li>
  * </ul>
- * Work queued from another thread goes through {@link #publishLater}; it is checked again when it runs.
+ * Work queued from another thread goes through {@link #publishLater}; it is checked again when it runs. When the
+ * assembled session is finally disposed it calls {@link #retire()}, after which nothing is published again.
  */
 public final class FixtureDispatcher {
 	private final Registry registry;
@@ -27,6 +28,7 @@ public final class FixtureDispatcher {
 	private Appearance appearance = Appearance.DEFAULTS;
 	private int generation;
 	private int rejected;
+	private boolean retired;
 
 	public FixtureDispatcher(Registry registry, FixtureClock clock) {
 		this.registry = Objects.requireNonNull(registry);
@@ -46,18 +48,36 @@ public final class FixtureDispatcher {
 	/** Count of publications refused as stale or from another generation (tests assert on it). */
 	public int rejected() { return rejected; }
 
-	/** Final disposal of the assembled session: retires publication authority for good. (Not implemented yet.) */
-	public void retire() { }
+	/**
+	 * Final disposal of the assembled session: retires publication authority for good. The binding generation moves on
+	 * (so every queued publication is from a retired binding), every later publication is refused, {@link #bind()} can
+	 * no longer revive it, and appearance and fixture actions become inert. Idempotent. EDT only.
+	 */
+	public void retire() {
+		requireEdt();
+		if (retired) return;
+		retired = true;
+		generation++;
+		actionHandler = a -> { };
+		onScopeChange = s -> { };
+		snapshotListeners.clear();
+		appearanceListeners.clear();
+	}
+
 	/** True once {@link #retire()} has run. */
-	public boolean retired() { return false; }
+	public boolean retired() { return retired; }
 
 	/** A new binding generation: earlier queued publications are refused when they arrive. EDT only. */
-	public int bind() { requireEdt(); return ++generation; }
+	public int bind() {
+		requireEdt();
+		if (retired) throw new IllegalStateException("dispatcher retired: the assembled session was disposed");
+		return ++generation;
+	}
 
 	/** Applies a publication now. EDT only. Returns false when it was refused. */
 	public boolean publish(FixtureSnapshot s) {
 		requireEdt();
-		if (s.generation() != generation) { rejected++; return false; }
+		if (retired || s.generation() != generation) { rejected++; return false; }
 		boolean newScope = current == null || !current.scope().equals(s.scope());
 		if (!newScope && s.revision() <= current.revision()) { rejected++; return false; }
 		current = s;
@@ -84,12 +104,16 @@ public final class FixtureDispatcher {
 	/** Preferences only; never touches observations. EDT only. */
 	public void setAppearance(Appearance a) {
 		requireEdt();
-		if (a.equals(appearance)) return;
+		if (retired || a.equals(appearance)) return;
 		appearance = a;
 		appearanceListeners.forEach(l -> l.accept(a));
 	}
 
-	public void dispatch(FixtureAction a) { requireEdt(); actionHandler.accept(Objects.requireNonNull(a)); }
+	public void dispatch(FixtureAction a) {
+		requireEdt();
+		Objects.requireNonNull(a);
+		if (!retired) actionHandler.accept(a);
+	}
 
 	private static void requireEdt() {
 		if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("EDT only");

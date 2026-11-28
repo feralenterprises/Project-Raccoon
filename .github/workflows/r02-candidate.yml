@@ -43,6 +43,26 @@ jobs:
         with:
           distribution: temurin
           java-version: '11.0.33+10'
+      - name: Linux font environment matches the Windows target (Arial metrics)
+        if: runner.os == 'Linux'
+        # Java's logical Dialog font follows fontconfig's sans-serif choice: DejaVu Sans on this runner, Arial on
+        # Windows. DejaVu's wider glyphs change layout-at-width checks (e.g. the 225 px selector). Liberation Sans is
+        # metric-compatible with Arial, so Linux measures what the Windows gate measures. No test or code changes.
+        run: |
+          sudo apt-get install -y -qq fonts-liberation > /dev/null
+          mkdir -p ~/.config/fontconfig
+          cat > ~/.config/fontconfig/fonts.conf <<'EOF2'
+          <?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+          <fontconfig>
+            <match target="pattern"><test qual="any" name="family"><string>sans-serif</string></test>
+              <edit name="family" mode="prepend" binding="strong"><string>Liberation Sans</string></edit></match>
+            <match target="pattern"><test qual="any" name="family"><string>sans</string></test>
+              <edit name="family" mode="prepend" binding="strong"><string>Liberation Sans</string></edit></match>
+          </fontconfig>
+          EOF2
+          fc-cache -f > /dev/null
+          rm -rf ~/.java/fonts
+          echo "sans-serif resolves to: $(fc-match sans-serif)"
       - name: Toolchain identity
         run: |
           java -version
