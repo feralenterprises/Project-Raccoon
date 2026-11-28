@@ -68,16 +68,21 @@ $sha = (& $script:GitExe -C $repo rev-parse HEAD).Trim()
 Assert 'a fresh checkout needs preparation' (Test-NeedingPrepare $repo $sha)
 $launcher = Join-Path $repo 'playtest\r02-playtest.cmd'
 $env:JAVA_HOME = $java17
-& $launcher prepare | Out-Host
-$failedExit = $LASTEXITCODE
+$stopped = $null
+try { Invoke-Prepare $repo } catch { $stopped = $_.Exception.Message; Write-Host $stopped }
 $env:JAVA_HOME = $jdk
-Assert "a failing preparation (here: Java 17 instead of the pin) exits nonzero ($failedExit), never silently 0" ($failedExit -ne 0)
+Assert 'a failing preparation (here: Java 17 instead of the pin) stops the wrapper, never passes silently' ($stopped -match 'Preparing the launcher failed')
 & $launcher prepare | Out-Host
-Assert 'prepare succeeds (launcher, isolation JAR, host compiled against RuneLite 1.13.8, classpath resolved)' ($LASTEXITCODE -eq 0)
+Write-Host "r02-playtest.cmd prepare exit code: $LASTEXITCODE"
+$prepared = $true
+try { Invoke-Prepare $repo } catch { $prepared = $false; Write-Host $_.Exception.Message }
+Assert 'the wrapper preparation succeeds (launcher, isolation JAR, host compiled against RuneLite 1.13.8, classpath resolved)' $prepared
 Assert 'after preparation the wrapper does not prepare again' (!(Test-NeedingPrepare $repo $sha))
 Assert 'after preparation the checkout is still clean (the wrapper refuses untracked files)' (!(& $script:GitExe -C $repo status --porcelain --untracked-files=all))
 
 $report = @(& $launcher check)
+$checkExit = $LASTEXITCODE
+Assert "a refused preflight exits nonzero through r02-playtest.cmd ($checkExit)" ($checkExit -ne 0)
 $report | Out-Host
 foreach ($line in @('PASS  JDK Eclipse Adoptium 11.0.33', 'PASS  checkout clean', 'PASS  host JAR built from HEAD', 'RuneLite classpath JARs match the lock',
                     'PASS  preferences-isolation JAR', 'PASS  RuneLite and the Jagex Launcher are not running', 'PASS  protected locations outside the profile readable')) {

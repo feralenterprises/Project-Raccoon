@@ -189,6 +189,15 @@ function Confirm-Toolchain([string]$Repo) {
     }
 }
 
+function Invoke-Prepare([string]$Repo) {
+    # Gradle is run directly so that each step's own exit code is seen (through r02-playtest.cmd a failed build could exit 0).
+    $gradlew = Join-Path $Repo 'gradlew.bat'
+    & $gradlew --no-daemon -p $Repo launcherJar | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "Preparing the launcher failed (Gradle exit $LASTEXITCODE). Copy the FIRST error above for Solis; check the internet connection and retry." }
+    & $gradlew --no-daemon -p (Join-Path $Repo 'playtest\host-plugin') playtestClasspath | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "Building the RuneLite 1.13.8 host failed (Gradle exit $LASTEXITCODE). Copy the FIRST error above for Solis; check the internet connection and retry." }
+}
+
 function Test-NeedingPrepare([string]$Repo, [string]$Sha) {
     $classpath = Join-Path $Repo 'playtest\host-plugin\build\playtest\classpath.txt'
     foreach ($file in @(
@@ -240,8 +249,7 @@ function Invoke-Playtest {
     if ((Get-CheckedOutCandidate $repo) -cne $sha) { throw 'The checkout changed. Pull origin and retry.' }
     if (Test-NeedingPrepare $repo $sha) {
         Write-Host "Preparing $sha. The first build can take a few minutes."
-        & $launcher prepare | Out-Host
-        if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
+        Invoke-Prepare $repo
         if (Test-NeedingPrepare $repo $sha) { throw 'Preparation did not produce the expected build. Send the console output to Solis.' }
     }
     if ((Get-CheckedOutCandidate $repo) -cne $sha) { throw 'The checkout changed during preparation. Pull origin and retry.' }
