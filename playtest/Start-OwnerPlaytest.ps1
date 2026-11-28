@@ -92,13 +92,28 @@ function Test-PinnedJdk([string]$JdkHome) {
         ($release -ccontains 'OS_NAME="Windows"') -and ($release -ccontains 'OS_ARCH="x86_64"')
 }
 
+function Remove-TreeNoFollow([string]$Dir) {
+    # A nested link or junction is removed itself (non-recursive delete of the link), never entered or followed.
+    foreach ($entry in [IO.Directory]::GetFileSystemEntries($Dir)) {
+        $attributes = [IO.File]::GetAttributes($entry)
+        if ($attributes -band [IO.FileAttributes]::ReparsePoint) {
+            if ($attributes -band [IO.FileAttributes]::Directory) { [IO.Directory]::Delete($entry, $false) } else { [IO.File]::Delete($entry) }
+        } elseif ($attributes -band [IO.FileAttributes]::Directory) {
+            Remove-TreeNoFollow $entry
+        } else {
+            if ($attributes -band [IO.FileAttributes]::ReadOnly) { [IO.File]::SetAttributes($entry, $attributes -bxor [IO.FileAttributes]::ReadOnly) }
+            [IO.File]::Delete($entry)
+        }
+    }
+    [IO.Directory]::Delete($Dir, $false)
+}
+
 function Remove-OwnFolder([string]$Path) {
     # Only plain folders the wrapper made under the playtest root; never through a link or junction.
     if (!(Test-Path -LiteralPath $Path)) { return }
     $item = Get-Item -LiteralPath $Path -Force
     if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Refusing to remove $Path (it is a link or junction). Send this message to Solis." }
-    # Directory.Delete removes nested links and junctions themselves, never what they point to.
-    [IO.Directory]::Delete($Path, $true)
+    Remove-TreeNoFollow $Path
 }
 
 function Install-PinnedJdk([string]$Root, [string]$Url = $JdkZipUrl, [string]$Hash = $JdkZipHash) {
