@@ -61,6 +61,7 @@ public final class ContractTests {
 		SwingUtilities.invokeAndWait(() -> {
 			try { run(); } catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
 		});
+		try { disposalFence(); } catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
 		try { SharedGapTests.run(ContractTests::check); } catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
 		try { FrozenDataTests.literals(ContractTests::check); } catch (Throwable t) { t.printStackTrace(); failures.add("exception: " + t); }
 		if (pkg != null) {
@@ -262,6 +263,61 @@ public final class ContractTests {
 		FixtureSnapshot before = d.current();
 		d.setAppearance(d.appearance().withAccent(com.feralenterprises.raccoon.playtest.r02.fixture.Appearance.Accent.SAPPHIRE));
 		return d.current() == before && d.appearance().accent() == com.feralenterprises.raccoon.playtest.r02.fixture.Appearance.Accent.SAPPHIRE;
+	}
+
+	/**
+	 * Disposal fence (Feral, 2026-11-27): when the assembled session is finally disposed the dispatcher's publication
+	 * authority is retired, so publications queued before or after disposal never apply, re-binding cannot revive it, and
+	 * appearance and fixture actions are inert. Runs across EDT tasks, because queued work only runs after the task that
+	 * queued it.
+	 */
+	static void disposalFence() throws Exception {
+		UiContext ui = new UiContext(new DefaultFontSource(), new com.feralenterprises.raccoon.ui.asset.AssetProvider() {
+			@Override public BufferedImage art(com.feralenterprises.raccoon.ui.asset.ArtKey key) { return null; }
+			@Override public BufferedImage nativeSprite(com.feralenterprises.raccoon.ui.asset.NativeSprite sp, Runnable onLoaded) { return null; }
+			@Override public BufferedImage item(int itemId, int quantity, Runnable onLoaded) { return null; }
+			@Override public String provenance() { return "none"; }
+		});
+		FixtureDispatcher d = new FixtureDispatcher(TestFixtures.registry(), TestFixtures.clock());
+		List<String> pagesBuilt = new ArrayList<>(), actions = new ArrayList<>(), seen = new ArrayList<>();
+		R02Composition[] c = new R02Composition[1];
+		Object[] state = new Object[3];
+		SwingUtilities.invokeAndWait(() -> {
+			c[0] = new R02Composition(ui, d, R02Assets.none(), Collections.singletonList(
+				new RouteRegistration(RouteId.HOME, Lane.ADVENTURE.name(), ctx -> { pagesBuilt.add(String.valueOf(ctx.snapshot().scope())); return new HomeStub(ctx); })));
+			d.setActionHandler(a -> actions.add(a.toString()));
+			d.onSnapshot(s -> seen.add(s.scope() + ":" + s.revision()));
+			int g = d.bind();
+			c[0].start(TestFixtures.demoA(g, 1));
+			// Queued while the session is live, from "another thread" (publishLater), then the session is finally disposed.
+			d.publishLater(TestFixtures.demoA(g, 2));
+			d.publishLater(TestFixtures.demoB(g, 1));
+			c[0].dispose();
+			d.retire();
+			state[0] = d.current();
+			state[1] = d.rejected();
+			state[2] = pagesBuilt.size();
+		});
+		SwingUtilities.invokeAndWait(() -> { });
+		SwingUtilities.invokeAndWait(() -> {
+			check("fence: final disposal retires the dispatcher", d.retired());
+			check("fence: publications queued before disposal never apply", d.current() == state[0] && d.rejected() == (int) state[1] + 2);
+			check("fence: no listener or page sees a queued publication after disposal", seen.isEmpty() && pagesBuilt.size() == (int) state[2]);
+			d.publishLater(TestFixtures.demoA(d.generation(), 9));
+		});
+		SwingUtilities.invokeAndWait(() -> { });
+		SwingUtilities.invokeAndWait(() -> {
+			check("fence: publications queued after disposal never apply", d.current() == state[0] && d.rejected() == (int) state[1] + 3);
+			check("fence: a direct publication with the current generation is refused", !d.publish(TestFixtures.demoB(d.generation(), 5)) && d.current() == state[0]);
+			check("fence: re-binding cannot revive a retired dispatcher", throwsIt(d::bind) && d.retired());
+			com.feralenterprises.raccoon.playtest.r02.fixture.Appearance before = d.appearance();
+			d.setAppearance(before.withAccent(com.feralenterprises.raccoon.playtest.r02.fixture.Appearance.Accent.SAPPHIRE));
+			check("fence: appearance changes are inert after disposal", d.appearance() == before);
+			d.dispatch(com.feralenterprises.raccoon.playtest.r02.fixture.FixtureAction.of(com.feralenterprises.raccoon.playtest.r02.fixture.FixtureAction.Kind.SWITCH_SCENARIO, "B"));
+			check("fence: fixture actions are inert after disposal", actions.isEmpty());
+			d.retire();
+			check("fence: retire is idempotent", d.retired() && d.current() == state[0]);
+		});
 	}
 
 	static void composition() {

@@ -46,6 +46,11 @@ public final class FixtureDispatcher {
 	/** Count of publications refused as stale or from another generation (tests assert on it). */
 	public int rejected() { return rejected; }
 
+	/** Final disposal of the assembled session: retires publication authority for good. (Not implemented yet.) */
+	public void retire() { }
+	/** True once {@link #retire()} has run. */
+	public boolean retired() { return false; }
+
 	/** A new binding generation: earlier queued publications are refused when they arrive. EDT only. */
 	public int bind() { requireEdt(); return ++generation; }
 

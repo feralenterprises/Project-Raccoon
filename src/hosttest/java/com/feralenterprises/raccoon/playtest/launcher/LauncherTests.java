@@ -711,8 +711,9 @@ public final class LauncherTests {
 			PlaytestLauncher.Settings t = settings();
 			t.environment.put("RACCOON_FAKE_MODE", "touchnested");
 			t.environment.put("RACCOON_FAKE_REALHOME", home.toString());
-			new PlaytestLauncher(t).launch();
+			int lastRc = new PlaytestLauncher(t).launch();
 			Path latch = home.resolve(".raccoon-r02-playtest/" + PlaytestLauncher.LATCH);
+			T.that("L7 exit: a failed post-run isolation check is nonzero (3) although the client exited 0", lastRc == 3);
 			T.that("L2 launch: a nested write outside the profile latches the launcher", Files.exists(latch)
 				&& new String(Files.readAllBytes(latch), StandardCharsets.UTF_8).contains("Vendor/deep/x.dat"));
 			Files.deleteIfExists(latch);
@@ -792,6 +793,7 @@ public final class LauncherTests {
 			s.phase = p -> { if (p.equals("launch:postflight")) try { seen[0] = probeLock(l.lockPath()); } catch (Exception e) { seen[0] = e.toString(); } };
 			int rc = l.launch();
 			T.that("L4 launch: the instance lock is held through the post-run check", rc == 0 && "held".equals(seen[0]));
+			T.that("L7 exit: a clean run keeps the client's exit code 0", rc == 0);
 			if (!"held".equals(seen[0])) System.out.println("  lock during postflight: " + seen[0] + (rc == 0 ? "" : "\n" + out()));
 			T.that("L4 launch: the lock is released afterwards", "free".equals(probeLock(l.lockPath())));
 		}
@@ -829,6 +831,7 @@ public final class LauncherTests {
 			int rc;
 			try { rc = l.launch(); } catch (Exception e) { rc = -99; }
 			T.that("L5 launch: a post-run snapshot that throws latches the launcher (never a pass)", rc != -99 && Files.exists(latch));
+			T.that("L7 exit: an unreadable post-run check is nonzero (3) although the client exited 0", rc == 3);
 			Files.deleteIfExists(latch);
 			deleteTree(home.resolve("AppData"));
 		}

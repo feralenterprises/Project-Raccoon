@@ -414,9 +414,19 @@ public final class HostTests {
 			"B".equals(s.fixtures().current().scope().account()) && s.selection().bank == BankState.POPULATED
 			&& s.fixtures().current().scope().epoch() > epochBeforeReset && s.fixtures().current().revision() == 1);
 		// Teardown.
-		edt(() -> { s.dispose(); return null; });
+		FixtureSnapshot beforeDispose = s.fixtures().current();
+		int rejectedBefore = s.fixtures().rejected();
+		edt(() -> {
+			// Queued by a lane or the controls before the final disposal, delivered after it (Feral's disposal fence).
+			s.fixtures().publishLater(FixtureSnapshot.builder(beforeDispose.scope()).generation(beforeDispose.generation()).revision(beforeDispose.revision() + 1).build());
+			s.dispose();
+			return null;
+		});
+		flush();
 		Map<String, Integer> t = s.teardownReport();
-		T.that("teardown: everything released " + t, PlaytestSession.clean(t) && t.size() == 4);
+		T.that("teardown: everything released " + t, PlaytestSession.clean(t) && t.size() == 5 && Integer.valueOf(0).equals(t.get("dispatcherNotRetired")));
+		T.that("fence: a publication queued before the final disposal never applies", s.fixtures().current() == beforeDispose
+			&& s.fixtures().rejected() == rejectedBefore + 1 && s.fixtures().retired());
 		edt(() -> { s.dispose(); s.clientPhase(ClientPhase.SUSPENDED); return null; });
 		T.that("teardown: idempotent; later calls ignored", s.teardownReport() == t && !edt(() -> s.selectAccount("A")));
 		T.that("record: session events written", rec.has("session") && rec.has("scope") && rec.has("phase") && rec.has("teardown"));
