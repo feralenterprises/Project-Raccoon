@@ -154,7 +154,7 @@ function Install-PinnedJdk([string]$Root, [string]$Url = $JdkZipUrl, [string]$Ha
 
 function Use-PinnedJdk([string]$Root) {
     # An already-pinned JAVA_HOME is used as is; anything else (Java 17, unset) gets the private pinned JDK.
-    $jdk = if (Test-PinnedJdk $env:JAVA_HOME) { $env:JAVA_HOME } else { Install-PinnedJdk $Root }
+    $jdk = if (Test-PinnedJdk $env:JAVA_HOME) { $env:JAVA_HOME.Trim().Trim('"') } else { Install-PinnedJdk $Root }
     # Process scope only: this window and the programs it starts. Nothing global is written.
     $env:JAVA_HOME = $jdk
     $env:PATH = "$(Join-Path $jdk 'bin');$env:PATH"

@@ -54,6 +54,9 @@ $quoted = $true
 try { $quoted = Test-PinnedJdk ('"' + $java17 + '"') } catch { $quoted = 'threw' }
 Assert 'a JAVA_HOME written with quotes is simply not the pinned JDK (no error)' ($quoted -eq $false)
 Assert 'a quoted JAVA_HOME of the pinned JDK is still recognised' (Test-PinnedJdk ('"' + $jdk + '"'))
+$saved = $env:JAVA_HOME; $env:JAVA_HOME = '"' + $jdk + '"'
+Assert 'a quoted JAVA_HOME of the pinned JDK is used unquoted' ((Use-PinnedJdk $root) -eq $jdk -and $env:JAVA_HOME -eq $jdk)
+$env:JAVA_HOME = $saved
 $keep = Join-Path $env:RUNNER_TEMP 'keep-me'; New-Item -ItemType Directory -Force -Path $keep | Out-Null; Set-Content -LiteralPath (Join-Path $keep 'k.txt') 'k'
 $own = Join-Path $root 'jdk\.extract-linktest'; New-Item -ItemType Directory -Force -Path $own | Out-Null
 cmd.exe /c mklink /J (Join-Path $own 'nested') $keep | Out-Null
